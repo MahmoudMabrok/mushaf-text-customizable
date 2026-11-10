@@ -1,58 +1,161 @@
 # Release notes
 
-## Unreleased — page margins, header panels, page number
+## 1.6.0 — reader milestone
 
-- **Reader milestone implemented** (the work specified in
-  [`docs/roadmap/next-mushaf-reader.md`](docs/roadmap/next-mushaf-reader.md)):
-  - **Public frame/header slots:** `PageFrame`, `PageFrameRequest`,
-    `PageFrameGeometry`, `PageFrameContext`, `FittedLabel`, `LineSpan`, and
-    `SurahHeader` / `SurahHeaderScope`. `MushafDecoration` gains `frame`
-    (default `PageFrames.Ornate`), `divisionMarks` (default `false`), and
-    `surahHeader` (default `null`) — source-compatible defaults that keep the
-    1.5.0 pixels. The data-class constructor carries the usual Kotlin binary
-    story, same as `surahHeaderOverrides` / `pageNumberScale`.
-  - **Division corpus:** `MushafDivisions` ships the 240 Madinah quarters and
-    the 15 sajdah positions; quarter 106 is **15:49**, following the in-line
-    `۞` in `hafs.tsv`, not the sample map's 15:50.
-  - **Division chrome:** `divisionMarks = true` draws the margin medallions
-    (juz / hizb / rubʿ / nisf / three-quarters / sajdah, aligned to the `۞` /
-    `۩` line) and the printed running head inside the frame.
-    `MushafPager` then suppresses its outer header/footer even when
-    `showHeaders` is true. Preset `MushafDecoration.Madinah`.
-  - **Printed looks:** `PageFrames.Cairo` / `.Diyanet` / `.IndoPak` with matching
-    `SurahHeader`s and the `MushafDecoration.Cairo` / `.Diyanet` / `.IndoPak`
-    presets — **skins of the same Madinah pages**: page breaks, font, and star
-    positions do not change.
-  - **Leaf turn:** `MushafPager(pageTurn = PageTurn.Curl)` peels one leaf
-    (fore-edge, back strip, shadow). `state.currentPageOffsetFraction` stays
-    `0` during a peel — it is **not** the peel progress; callers that need the
-    fraction stay on `PageTurn.Slide`. Taps in the text column stay ayah taps.
-  - **Spread:** `MushafSpread.Auto` shows the page and its pair side by side on
-    screens at least 600 dp wide (odd page right, even pair left, page 1 shows
-    the inside cover). The pair is static for now — a leaf turn on a spread is
-    a later task.
-  - **Sample:** an off-by-default preview control for the presets, `PageTurn`,
-    and the spread. The opening screen stays the current reader.
-- **Page number in the frame medallion:** was a hardcoded `0.34 ×` the ayah font
+A minor bump. New reader features sit on the 1.5.0 decoration, and the new
+parameters default so an undecorated page is unchanged. A page that already
+draws the ornate frame does change pixels: tighter margins, a larger medallion
+number, and shorter classic header panels.
+
+### Page curl, spread, and division marks
+
+- **Leaf turn.** `MushafPager(pageTurn = PageTurn.Curl)` peels one leaf: the
+  fore-edge lifts, the back of the sheet shows along the peel, a soft shadow
+  falls on the revealed page, and the current page is clipped above. The
+  default stays `PageTurn.Slide` (the right-to-left `HorizontalPager`). Taps in
+  the text column stay ayah taps; taps in the frame margin turn the leaf.
+  During a peel, `state.currentPageOffsetFraction` stays `0` — it is **not**
+  the peel progress. Callers that need the fraction stay on `PageTurn.Slide`.
+- **Spread.** `spread = MushafSpread.Auto` shows the page and its pair side by
+  side when the page area is at least 600 dp wide: the odd page on the right,
+  its even pair on the left, like the open book. Page 1 shows the inside cover
+  on its left, and the last spread (603, 604) is full. `state.currentPage`
+  keeps addressing a single mushaf page. The pair is static for now — a leaf
+  turn on a spread is a later task. The default is `MushafSpread.Single`.
+- **Division corpus.** `MushafDivisions` ships the 240 Madinah quarters and the
+  15 sajdah positions as `MushafMark` data. Quarter 106 is **15:49**, following
+  the in-line `۞` in `hafs.tsv`, not 15:50.
+- **Division chrome.** `divisionMarks = true` (default `false`) draws the margin
+  medallions — juz, hizb, rubʿ, nisf, three-quarters, sajdah — aligned to the
+  `۞` / `۩` line, and the printed running head inside the frame (surah on the
+  right, juz on the left). `MushafPager` then suppresses its outer header and
+  footer even when `showHeaders` is true, so the page number is not drawn
+  twice. Preset: `MushafDecoration.Madinah` (Classic plus the marks).
+
+### Printed looks and custom frames
+
+- **Skins of the same Madinah pages.** `PageFrames.Cairo` / `.Diyanet` /
+  `.IndoPak`, matching `SurahHeader`s, and `MushafDecoration.Cairo` /
+  `.Diyanet` / `.IndoPak`. Page breaks, the font, and the star positions do
+  not change. Each preset follows `MushafColors`, including a dark-paper
+  palette. Indo-Pak draws a hairline under every verse line and uses eastern
+  digits (`U+06F0`) on the surah-number label.
+- **Host slots.** `PageFrame`, `PageFrameRequest`, `PageFrameGeometry`,
+  `PageFrameContext`, `FittedLabel`, `LineSpan`, and `SurahHeader` /
+  `SurahHeaderScope`. `MushafDecoration.frame` defaults to `PageFrames.Ornate`
+  (the 1.5.0 frame). `surahHeader` defaults to `null`, which keeps the
+  `SurahHeaderStyle` drawers; `SurahHeader.Custom` composes the host banner in
+  the banner slot and clips it there. New looks live on `SurahHeader`, not on
+  the `SurahHeaderStyle` enum, so existing `when`s keep compiling.
+- **Sample.** An off-by-default preview sheet (presets, `PageTurn`, spread)
+  behind a toolbar star. The opening screen stays the current reader.
+
+### Frame margins, header panels, page number
+
+- **Page number in the medallion.** Was a hardcoded `0.34 ×` the ayah font
   (about **6–9 sp** on a phone), so the digits sat small inside the rosette.
-  The number is now fitted to the ornament. `MushafDecoration.pageNumberScale`
-  (default **0.72**, also `DEFAULT_PAGE_NUMBER_SCALE`) is the fraction of the
-  inner disk the digit ink fills. With Android's Arabic sans digits that is
-  about **23 sp** for a one-digit page and about **13 sp** for a three-digit
-  page — clearly larger, still inside the ring. Ayah text, surah headers, and
-  the frame geometry are unchanged. `1` fills the disk; values are clamped to
-  `0.05..1`.
-- **Page number:** host apps that drew their own footer under `MushafPage` while
-  `pageFrame` was on saw the number twice (footer + frame medallion). The medallion
-  remains the single source when the frame is on; hosts should hide any extra footer.
-- **Margins (configurable on `MushafDecoration`):**
-  - `textGap` (default **8**, was 5) — more room between ayat and the ornate band.
-  - `frameOuterMargin` / `frameInnerMargin` / `frameTopMargin` / `frameBottomMargin`
-    (defaults **5 / 2 / 1.5 / 14**, were 9 / 3 / 2 / 19) — frame sits closer to the
-    page edge.
-- **Surah header panels:** drop the «آياتها» caption; left panel is just
-  `ayahCountLabel` (e.g. `٧ آيات`). Right panel is one larger line
-  «مكية ١» / «مدنية ٢». Panel text size raised (~0.55× page font).
+  `MushafDecoration.pageNumberScale` (default **0.72**, also
+  `DEFAULT_PAGE_NUMBER_SCALE`) is the fraction of the inner disk the digit ink
+  fills. With Android's Arabic sans digits that is about **23 sp** for a
+  one-digit page and about **13 sp** for a three-digit page — larger, still
+  inside the ring. Ayah text and surah-header geometry are unchanged. `1`
+  fills the disk; values are clamped to `0.05..1`.
+- **One page number.** Hosts that drew their own footer under `MushafPage`
+  while `pageFrame` was on saw the number twice (footer + medallion). The
+  medallion is the page number when the frame is on; hide any extra footer.
+- **Margins, now fields on `MushafDecoration`.** `textGap` (default **8**, was
+  5) leaves more room between the ayat and the ornate band.
+  `frameOuterMargin` / `frameInnerMargin` / `frameTopMargin` /
+  `frameBottomMargin` (defaults **5 / 2 / 1.5 / 14**, were 9 / 3 / 2 / 19) sit
+  the frame closer to the page edge.
+- **Classic header panels.** The «آياتها» caption is gone. The left panel is
+  `ayahCountLabel` alone (for example `٧ آيات`). The right panel is one larger
+  line, «مكية ١» / «مدنية ٢». Panel text is about `0.55 ×` the page font.
+
+### Compatibility
+
+- Source-compatible for Kotlin call sites: the new `MushafDecoration` fields
+  and the new `MushafPager` parameters (`pageTurn`, `spread`) have defaults.
+  The data-class constructor is the usual Kotlin binary break, the same story
+  as `surahHeaderOverrides` and `pageNumberScale` in 1.5.0.
+- `Surah.revelationType` stays required, as in 1.5.0. The Flutter package is
+  unchanged.
+
+### العربية — مرحلة القارئ
+
+ترقية صغرى. ميزات القارئ الجديدة فوق تزيين ١٫٥٫٠، والقيم الافتراضية تُبقي
+الصفحة بلا تزيين كما هي. الصفحة التي ترسم الإطار المزخرف أصلًا تتغيّر بكسلاتها:
+هوامش أضيق، ورقم أكبر في الوردة، ولوحات ترويسة كلاسيكية أقصر.
+
+#### تقليب الورقة، والازدواج، وعلامات الأقسام
+
+- **تقليب الورقة.** `MushafPager(pageTurn = PageTurn.Curl)` يقشر ورقة واحدة:
+  ترتفع الحافة، ويظهر ظهر الورقة على طول التكشيرة، ويقع ظلّ خفيف على الصفحة
+  المكشوفة، وتُقصّ الصفحة الحالية فوقها. الافتراضي يبقى `PageTurn.Slide`
+  (الانزلاق من اليمين إلى الشمال). اللمسات داخل عمود النص تبقى لمسات آيات،
+  ولمسات هامش الإطار تقلب الورقة. أثناء التكشيرة يبقى
+  `state.currentPageOffsetFraction` مساويًا `0` — هو **ليس** تقدّم التكشيرة.
+  من يحتاج الكسر يبقى على `PageTurn.Slide`.
+- **الازدواج.** `spread = MushafSpread.Auto` يعرض الصفحة وزوجتها جنبًا إلى جنب
+  عندما يبلغ عرض مساحة الصفحة ٦٠٠dp على الأقل: الفردية يمينًا والزوجية شمالًا،
+  كالكتاب المفتوح. الصفحة ١ شمالها داخل الكتاب، والازدواج الأخير (٦٠٣، ٦٠٤)
+  ممتلئ. `state.currentPage` يظل يعنون صفحة واحدة. الزوج ثابت الآن — تقليب
+  الورقة على ازدواج مهمة لاحقة. الافتراضي `MushafSpread.Single`.
+- **جدول الأقسام.** `MushafDivisions` يضمّ أرباع المدينة الـ٢٤٠ ومواضع السجود
+  الـ١٥ كبيانات `MushafMark`. الربع ١٠٦ هو **١٥:٤٩**، تبعًا لـ`۞` داخل
+  `hafs.tsv`، لا ١٥:٥٠.
+- **زينة الأقسام.** `divisionMarks = true` (الافتراضي `false`) يرسم وردات
+  الهامش — جزء، حزب، ربع، نصف، ثلاثة أرباع، سجدة — محاذية لسطر `۞` / `۩`،
+  ورأس الصفحة المطبوع داخل الإطار (السورة يمينًا والجزء شمالًا). عندها يخفي
+  `MushafPager` ترويسته وتذييله الخارجيين حتى لو كان `showHeaders` صحيحًا، فلا
+  يُرسم رقم الصفحة مرتين. الإعداد الجاهز: `MushafDecoration.Madinah` (الكلاسيك
+  مع العلامات).
+
+#### الطُرز المطبوعة والإطارات المخصّصة
+
+- **مظاهر لصفحات المدينة نفسها.** `PageFrames.Cairo` / `.Diyanet` / `.IndoPak`
+  مع `SurahHeader` المطابقة وإعدادات `MushafDecoration.Cairo` / `.Diyanet` /
+  `.IndoPak`. كسور السطور والخط ومواضع النجوم لا تتغيّر. كل إعداد يتبع
+  `MushafColors`، بما فيه لوحة الورق الداكن. إندو-باك يرسم خطًّا رفيعًا تحت كل
+  سطر آيات ويستخدم الأرقام الشرقية (`U+06F0`) في رقم السورة.
+- **خانات التطبيق.** `PageFrame` و`PageFrameRequest` و`PageFrameGeometry`
+  و`PageFrameContext` و`FittedLabel` و`LineSpan` و`SurahHeader` /
+  `SurahHeaderScope`. `MushafDecoration.frame` افتراضه `PageFrames.Ornate`
+  (إطار ١٫٥٫٠). `surahHeader` افتراضه `null` فيُبقي رسّامي
+  `SurahHeaderStyle`؛ و`SurahHeader.Custom` يضع ترويسة التطبيق في خانة الشريط
+  ويقصّها عليها. الطُرز الجديدة على `SurahHeader` لا على تعداد
+  `SurahHeaderStyle`، فتبقى فروع `when` الحالية قابلة للترجمة.
+- **التطبيق التجريبي.** لوحة معاينة مطفأة افتراضيًا (الإعدادات و`PageTurn`
+  والازدواج) خلف نجمة في شريط الأدوات. الشاشة الأولى تبقى القارئ الحالي.
+
+#### هوامش الإطار، ولوحات الترويسة، ورقم الصفحة
+
+- **رقم الصفحة في الوردة.** كان `0.34 ×` خط الآية ثابتًا (نحو **٦–٩sp** على
+  الهاتف)، فتقعد الأرقام صغيرة داخل الوردة. `MushafDecoration.pageNumberScale`
+  (الافتراضي **0.72**، وهو أيضًا `DEFAULT_PAGE_NUMBER_SCALE`) نسبة قرص الوردة
+  الداخلي التي يملؤها حبر الرقم. بأرقام أندرويد العربية العادية يكون ذلك نحو
+  **٢٣sp** لصفحة بخانة ونحو **١٣sp** لصفحة بثلاث خانات — أكبر، وما زال داخل
+  الحلقة. نص الآيات وهندسة ترويسة السورة كما هما. `1` يملأ القرص، والقيم
+  تُحصر في `0.05..1`.
+- **رقم صفحة واحد.** التطبيق الذي رسم تذييله تحت `MushafPage` مع `pageFrame`
+  كان يرى الرقم مرتين (التذييل + الوردة). الوردة هي رقم الصفحة حين يكون الإطار
+  ظاهرًا؛ أخفِ أي تذييل زائد.
+- **الهوامش صارت حقولًا على `MushafDecoration`.** `textGap` (الافتراضي **٨**،
+  وكان ٥) يترك فراغًا أكبر بين الآيات والشريط المزخرف.
+  `frameOuterMargin` / `frameInnerMargin` / `frameTopMargin` /
+  `frameBottomMargin` (الافتراضيات **٥ / ٢ / ١٫٥ / ١٤**، وكانت ٩ / ٣ / ٢ / ١٩)
+  تُقرّب الإطار من حافة الصفحة.
+- **لوحات الترويسة الكلاسيكية.** سقط تعليق «آياتها». اللوحة اليسرى هي
+  `ayahCountLabel` وحدها (مثل `٧ آيات`). اللوحة اليمنى سطر واحد أكبر: «مكية ١»
+  / «مدنية ٢». حجم نص اللوحة نحو `0.55 ×` خط الصفحة.
+
+#### التوافق
+
+- متوافق مصدريًا لنداءات Kotlin: حقول `MushafDecoration` الجديدة ومعاملا
+  `MushafPager` الجديدان (`pageTurn` و`spread`) لهما قيم افتراضية. منشئ
+  الـdata class فيه كسر الثنائي المعتاد في Kotlin، كحال `surahHeaderOverrides`
+  و`pageNumberScale` في ١٫٥٫٠.
+- `Surah.revelationType` يبقى مطلوبًا كما في ١٫٥٫٠. حزمة Flutter بلا تغيير.
 
 ## 1.5.0 — decoration, stable
 

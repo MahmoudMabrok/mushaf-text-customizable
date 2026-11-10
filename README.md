@@ -8,9 +8,12 @@ matching the styles used in the customized reader of QuranyApp.
 
 **English** · [العربية](#العربية)
 
-> **1.5.0 — the decoration release.** The frame now owns the text area, the surah header is a full
-> Classic cartouche with the ayah count and the surah number in side panels, and `ayahFrame`
-> actually draws. See [CHANGELOG.md](CHANGELOG.md).
+> **1.6.0 — the reader milestone.** One-leaf page curl, hizb and juz marks, Cairo / Diyanet /
+> Indo-Pak skins of the same Madinah pages, and host-supplied frames and headers. See
+> [CHANGELOG.md](CHANGELOG.md).
+>
+> **١٫٦٫٠ — مرحلة القارئ.** تقليب ورقة واحدة، وعلامات الحزب والجزء، وطُرز القاهرة وديانت
+> وإندو-باك على صفحات المدينة نفسها، وإطار وترويسة من التطبيق. انظر [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -36,10 +39,10 @@ mode in which every rule carries its source.
   surah headers, and a padded frame around highlighted ayahs.
 - Fully offline: text, font and layout all ship inside the library. No network, no API.
 
-The next milestone — a bound-book page turn, hizb and juz marks on the frame,
-more printed styles, and host-supplied headers and frames — is specified in
+**1.6.0** adds a bound-book page turn, hizb and juz marks on the frame,
+Cairo / Diyanet / Indo-Pak skins, and host-supplied headers and frames.
+The design record is
 [`docs/roadmap/next-mushaf-reader.md`](docs/roadmap/next-mushaf-reader.md).
-That file is a plan. Those features are not in this version.
 
 ### Installation
 
@@ -59,7 +62,7 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.sherifshabans:mushaf-text:1.5.0")
+    implementation("com.github.sherifshabans:mushaf-text:1.6.0")
 }
 ```
 
@@ -67,7 +70,7 @@ Groovy (`build.gradle`):
 
 ```groovy
 repositories { maven { url 'https://jitpack.io' } }
-dependencies { implementation 'com.github.sherifshabans:mushaf-text:1.5.0' }
+dependencies { implementation 'com.github.sherifshabans:mushaf-text:1.6.0' }
 ```
 
 Requirements: `minSdk 21` and Jetpack Compose. The library adds about 1.7 MB to an app
@@ -472,10 +475,10 @@ the reciter list from [mp3quran.net](https://mp3quran.net).
   (`CLASSIC` / `MODERN` / `PLAIN`)، وإطار بحشوة حول الآية المظللة.
 - يعمل بلا إنترنت تمامًا: النصّ والخط والتخطيط داخل المكتبة. لا شبكة ولا API.
 
-المرحلة التالية — تقليب الصفحة كالمصحف المجلّد، وعلامات الحزب والجزء على الإطار،
-وأنماط مطبوعة إضافية، وترويسة وإطار يوفّرهما التطبيق المستضيف — موصوفة في
+**١٫٦٫٠** تضيف تقليب الصفحة كالمصحف المجلّد، وعلامات الحزب والجزء على الإطار،
+وطُرز القاهرة وديانت وإندو-باك، وترويسة وإطار يوفّرهما التطبيق المستضيف.
+سجلّ التصميم في
 [`docs/roadmap/next-mushaf-reader.md`](docs/roadmap/next-mushaf-reader.md).
-الملف خطة عمل، وهذه الميزات ليست في هذه النسخة.
 
 ### التثبيت
 
@@ -495,7 +498,7 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.sherifshabans:mushaf-text:1.5.0")
+    implementation("com.github.sherifshabans:mushaf-text:1.6.0")
 }
 ```
 
@@ -503,7 +506,7 @@ Groovy (`build.gradle`):
 
 ```groovy
 repositories { maven { url 'https://jitpack.io' } }
-dependencies { implementation 'com.github.sherifshabans:mushaf-text:1.5.0' }
+dependencies { implementation 'com.github.sherifshabans:mushaf-text:1.6.0' }
 ```
 
 المتطلبات: `minSdk 21` وJetpack Compose. والمكتبة تزيد حجم التطبيق نحو ١٫٧ ميجا (النصّ ١٫٤ +

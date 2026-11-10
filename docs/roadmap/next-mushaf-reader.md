@@ -1,17 +1,19 @@
 # Next mushaf reader — implementation plan
 
-Status: **plan only**. This document specifies the next milestone of the Kotlin
-library. It does not implement page curl, hizb marks, new frames, or custom
-header slots. Do not cut a version or a git tag from this document.
+Status: **shipped as 1.6.0**. This document is the design for that release —
+page curl, hizb marks, the extra frames, and custom header slots — and the
+library implements it. The published version is **1.6.0**
+(`mushaf/build.gradle.kts` and tag `1.6.0`). Do not cut a version from this
+document; it is the design record, not the version source.
 
-Published tag at the time of writing: **1.5.0**. `main` is ahead of that tag
-with the page-number work from PR #3 (`pageNumberScale`, medallion-fitted
-digits). JitPack consumers, including SaloAleh, depend on
+When this plan was written the published tag was **1.5.0** and `main` was
+ahead of that tag with the page-number work from PR #3 (`pageNumberScale`,
+medallion-fitted digits). JitPack consumers, including SaloAleh, depend on
 `com.github.MahmoudMabrok:mushaf-text-customizable`. The Flutter package has no
-`MushafDecoration` and is outside this milestone.
+`MushafDecoration` and was outside this milestone.
 
-Suggested shipping version, when the work below actually lands: **1.6.0**.
-Ship it as the pull requests in [§11](#11-sequenced-tasks), not as one change.
+The work landed as the pull requests in [§11](#11-sequenced-tasks), then
+shipped together as **1.6.0**.
 
 An implementer can start at [§3](#3-current-state) and [§7](#7-customization-api),
 then take the tasks in [§11](#11-sequenced-tasks) in order.
@@ -779,7 +781,7 @@ and treats source compatibility as the bar. Say so in the 1.6.0 notes.
 | `showHeaders = true` and `divisionMarks = true` with a frame | Outer chrome suppressed. The frame's running head and medallion own those labels. |
 | Custom `Surah(...)` | Unchanged. `revelationType` stays required, as in 1.5.0. |
 | Flutter | Untouched. |
-| `version` in `mushaf/build.gradle.kts` | Stays `1.5.0` until the release PR. This plan does not edit it. |
+| `version` in `mushaf/build.gradle.kts` | **1.6.0**, the release this plan described. |
 
 Migration notes for the 1.6.0 README, written when the code lands:
 
