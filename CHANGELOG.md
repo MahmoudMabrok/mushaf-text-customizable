@@ -1,5 +1,91 @@
 # Release notes
 
+## 1.7.0 — page turns
+
+A minor bump. `MushafPager(pageTurn = …)` grows three motions and the two that
+shipped in 1.6.0 are redrawn. The default is still `PageTurn.Slide`, and a call
+that passes `Slide` or `Curl` keeps compiling.
+
+### Turns
+
+- **Curl.** `PageTurn.Curl` follows the finger. A grab in the top or bottom band
+  peels that corner: the underside of the sheet and a soft shadow travel with the
+  tip, and the next page lies underneath. A grab in the middle peels the whole
+  fore-edge as a short cylinder with a highlight on the lip. Releasing eases to
+  the nearest page (fast-out, slow-in). The drag itself is 1:1 — easing is only
+  the settle.
+- **Flip.** `PageTurn.Flip` rotates the sheet around the spine. Going forward the
+  spine is the right edge, the next page stays flat underneath, and the turning
+  sheet darkens as it closes. Rotation stops at 90° so the page never mirrors.
+- **Fade.** `PageTurn.Fade` fades the leaving page back a little and fades the
+  next one in, still driven by the finger.
+- **Cover.** `PageTurn.Cover` pulls the next page in from the fore-edge over the
+  current one, with a shadow on the leading edge and a dim on the page being
+  covered.
+- **Slide.** The right-to-left `HorizontalPager` snaps with the same fast-out,
+  slow-in ease, and the moving sheet picks up a soft shade on both edges. On a
+  wide spread, one flick advances a whole opening instead of landing on the same
+  pair twice.
+- **Direction.** A finger moving right reveals the next page, in every mode.
+  Taps in the text column stay ayah taps. Taps in the frame margin turn the leaf.
+- **Spread.** With `MushafSpread.Auto`, curl and flip turn the fore-edge leaf
+  around the gutter. The facing page crossfades in over the second half of the
+  turn, so the opening does not pop when the leaf settles. Fade and cover move
+  the whole opening. `state.currentPage` is still one mushaf page. A finger turn
+  settles on the right-hand page of the opening you land on (page 2 for the first
+  opening, page 1 when you close it).
+- **Offset.** On curl, flip, fade, and cover, `currentPageOffsetFraction` stays
+  `0`. It is not the turn progress. Callers that need the fraction stay on
+  `PageTurn.Slide`.
+- **Sample.** The style preview (toolbar star) lists every turn, not only slide
+  and curl.
+
+### Compatibility
+
+- Source-compatible for call sites that pass `pageTurn = PageTurn.Slide` or
+  `PageTurn.Curl`. `Flip`, `Fade`, and `Cover` are new enum values, so a `when`
+  without `else` needs a new branch. The library version is **1.7.0**.
+
+### العربية — تقليب الصفحات
+
+ترقية صغرى. `MushafPager(pageTurn = …)` زاد ثلاث حركات، والحركتان اللي نزلوا
+في ١٫٦٫٠ اتعاد رسمهم. الافتراضي لسه `PageTurn.Slide`، والنداء اللي بيمرّر
+`Slide` أو `Curl` بيتترجم زي ما هو.
+
+#### التقليب
+
+- **التكشيرة.** `PageTurn.Curl` بتتبع الإصبع. القبضة في الشريط العلوي أو السفلي
+  بتقشّر الزاوية: ظهر الورقة وظل خفيف بيمشوا مع الطرف، والصفحة الجاية مفروشة
+  تحت. القبضة من النص بتقشّر الحافة كلها كأسطوانة قصيرة فيها لمعة على الشفة.
+  الإفلات بيهدي لأقرب صفحة. السحب نفسه واحد لواحد — التهدئة بس في الآخر.
+- **القلب.** `PageTurn.Flip` بيدوّر الورقة حول الكعب. في التقدّم الكعب هو الحافة
+  اليمين، والصفحة الجاية ثابتة تحتها، والورقة بتغمق وهي بتتقفل. الدوران بيقف
+  عند ٩٠° فالصفحة ما بتنعكسش.
+- **التلاشي.** `PageTurn.Fade` بيبهّت الصفحة الخارجة شوية وبيظهّر الجاية، برضه
+  بإصبع القارئ.
+- **التغطية.** `PageTurn.Cover` بيسحب الصفحة الجاية من حافة الكتاب فوق الحالية،
+  بظل على الحرف وتعتيم على الصفحة المتغطية.
+- **الانزلاق.** `HorizontalPager` من اليمين للشمال بيهدي بخروج سريع ودخول بطيء،
+  والورقة المتحركة تاخد ظل خفيف على الحافتين. على الشاشة العريضة، سحبة واحدة
+  بتنقل فتحة كاملة مش نفس الزوجتين مرتين.
+- **الاتجاه.** الإصبع اللي بيتحرك يمين بيكشف الصفحة الجاية في كل وضع. لمسات
+  عمود النص لمسات آيات. لمسات هامش الإطار بتقلب الورقة.
+- **الازدواج.** مع `MushafSpread.Auto` التكشيرة والقلب بيقلّبوا ورقة الحافة حول
+  الكعب. الصفحة المقابلة بتتبدّل في نص التقليبة، فالفتحة ما بتقفزش لما الورقة
+  تهدى. التلاشي والتغطية بيحرّكوا الفتحة كلها. `state.currentPage` لسه صفحة
+  واحدة. تقليبة الإصبع بتقف على الصفحة اليمين من الفتحة الجديدة (صفحة ٢ لأول
+  فتحة، وصفحة ١ لما تتقفل).
+- **الكسر.** في التكشيرة والقلب والتلاشي والتغطية،
+  `currentPageOffsetFraction` بيفضل `0`. هو مش تقدّم التقليبة. اللي محتاج
+  الكسر يفضل على `PageTurn.Slide`.
+- **التطبيق التجريبي.** لوحة الطُرز (نجمة الشريط) بتعرض كل طرق التقليب.
+
+#### التوافق
+
+- متوافق مصدريًا للنداءات اللي بتمرّر `pageTurn = PageTurn.Slide` أو
+  `PageTurn.Curl`. `Flip` و`Fade` و`Cover` قيم جديدة في التعداد، فـ`when` من
+  غير `else` محتاج فرع جديد. إصدار المكتبة **1.7.0**.
+
 ## 1.6.0 — reader milestone
 
 A minor bump. New reader features sit on the 1.5.0 decoration, and the new

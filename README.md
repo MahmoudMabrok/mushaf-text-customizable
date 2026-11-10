@@ -8,12 +8,11 @@ matching the styles used in the customized reader of QuranyApp.
 
 **English** · [العربية](#العربية)
 
-> **1.6.0 — the reader milestone.** One-leaf page curl, hizb and juz marks, Cairo / Diyanet /
-> Indo-Pak skins of the same Madinah pages, and host-supplied frames and headers. See
-> [CHANGELOG.md](CHANGELOG.md).
+> **1.7.0 — page turns.** Curl follows the finger (corner or edge), flip rotates around
+> the spine, and fade and cover join the eased slide. See [CHANGELOG.md](CHANGELOG.md).
 >
-> **١٫٦٫٠ — مرحلة القارئ.** تقليب ورقة واحدة، وعلامات الحزب والجزء، وطُرز القاهرة وديانت
-> وإندو-باك على صفحات المدينة نفسها، وإطار وترويسة من التطبيق. انظر [CHANGELOG.md](CHANGELOG.md).
+> **١٫٧٫٠ — تقليب الصفحات.** التكشيرة تتبع الإصبع (من الزاوية أو من الحافة)، والقلب
+> يدور حول كعب الكتاب، ومعهما التلاشي والتغطية إلى جوار الانزلاق. انظر [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -39,9 +38,10 @@ mode in which every rule carries its source.
   surah headers, and a padded frame around highlighted ayahs.
 - Fully offline: text, font and layout all ship inside the library. No network, no API.
 
-**1.6.0** adds a bound-book page turn, hizb and juz marks on the frame,
-Cairo / Diyanet / Indo-Pak skins, and host-supplied headers and frames.
-The design record is
+**1.7.0** replaces the flat peel with turns that follow the finger: a corner or edge
+curl, a 3D flip around the spine, a fade, and a cover, plus an eased slide.
+**1.6.0** added the first curl, hizb and juz marks, the Cairo / Diyanet / Indo-Pak
+skins, and host-supplied headers and frames. The design record for that release is
 [`docs/roadmap/next-mushaf-reader.md`](docs/roadmap/next-mushaf-reader.md).
 
 ### Installation
@@ -62,7 +62,7 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.sherifshabans:mushaf-text:1.6.0")
+    implementation("com.github.sherifshabans:mushaf-text:1.7.0")
 }
 ```
 
@@ -70,7 +70,7 @@ Groovy (`build.gradle`):
 
 ```groovy
 repositories { maven { url 'https://jitpack.io' } }
-dependencies { implementation 'com.github.sherifshabans:mushaf-text:1.6.0' }
+dependencies { implementation 'com.github.sherifshabans:mushaf-text:1.7.0' }
 ```
 
 Requirements: `minSdk 21` and Jetpack Compose. The library adds about 1.7 MB to an app
@@ -270,29 +270,42 @@ MushafDecoration.Classic.copy(
 
 ### Turning a leaf (`PageTurn`)
 
-`pageTurn = PageTurn.Curl` peels one leaf the way a bound mushaf does: the fore-edge
-lifts, the back of the sheet shows along the peel, and the next page is revealed
-underneath. The default stays `PageTurn.Slide` (the right-to-left `HorizontalPager`).
-Taps inside the text column stay ayah taps; taps in the frame margin turn the leaf.
+`pageTurn` chooses the motion. The default stays `PageTurn.Slide`. Existing 1.6.0 call
+sites that pass `Slide` or `Curl` keep compiling; a `when` with no `else` needs a branch
+for each new value.
+
+| Value | What it does |
+|---|---|
+| `Slide` | Right-to-left `HorizontalPager`. The drag is `currentPageOffsetFraction`. The snap eases out, and the moving sheet picks up a soft edge shade. |
+| `Curl` | A dog-ear when the finger starts near a corner, or a cylindrical fore-edge peel from the middle. The back of the sheet and a shadow follow the finger. |
+| `Flip` | The sheet rotates around the spine (the right edge going forward) and darkens as it closes. The next page lies flat underneath. Rotation stops at 90° so the page never mirrors. |
+| `Fade` | The leaving page fades and settles back a little while the next page fades in. |
+| `Cover` | The next page slides in from the fore-edge and covers the current one, with a shadow on its leading edge. |
 
 ```kotlin
 MushafPager(
     state = rememberMushafPagerState(22),
-    pageTurn = PageTurn.Curl,
+    pageTurn = PageTurn.Curl,   // or Flip, Fade, Cover, Slide
     decoration = MushafDecoration.Madinah,
 )
 ```
 
-During a peel, `state.currentPageOffsetFraction` stays `0` — it is **not** the peel
-progress. Callers that need the fraction stay on `PageTurn.Slide`.
+The mushaf turns right to left: a finger moving right reveals the next page. Taps inside
+the text column stay ayah taps; taps in the frame margin turn the leaf. On `Curl`,
+`Flip`, `Fade`, and `Cover`, `state.currentPageOffsetFraction` stays `0` — it is **not**
+the turn progress. Callers that need the fraction stay on `PageTurn.Slide`. Releasing
+the finger eases to the nearest page (fast-out, slow-in).
 
 ### Two-page spread (`MushafSpread`)
 
 `spread = MushafSpread.Auto` shows the page and its pair side by side when the page area
 is at least 600 dp wide: the odd page on the right, its even pair on the left, like the
 open book. Page 1 shows the inside cover on its left. `state.currentPage` keeps
-addressing a single mushaf page. The pair is **static** for now — it does not turn like a
-leaf yet.
+addressing a single mushaf page.
+
+Curl and flip turn one leaf around the gutter (the fore-edge page moves, the facing page
+crossfades in over the second half of the turn). Slide, fade, and cover move the whole
+opening, and a slide flick advances one opening instead of repeating the same pair.
 
 ### Highlighting ayahs
 
@@ -475,9 +488,10 @@ the reciter list from [mp3quran.net](https://mp3quran.net).
   (`CLASSIC` / `MODERN` / `PLAIN`)، وإطار بحشوة حول الآية المظللة.
 - يعمل بلا إنترنت تمامًا: النصّ والخط والتخطيط داخل المكتبة. لا شبكة ولا API.
 
-**١٫٦٫٠** تضيف تقليب الصفحة كالمصحف المجلّد، وعلامات الحزب والجزء على الإطار،
-وطُرز القاهرة وديانت وإندو-باك، وترويسة وإطار يوفّرهما التطبيق المستضيف.
-سجلّ التصميم في
+**١٫٧٫٠** يستبدل القشرة المسطّحة بتقليب يتبع الإصبع: تكشيرة من الزاوية أو الحافة،
+وقلب ثلاثي حول الكعب، وتلاشٍ، وتغطية، مع انزلاق مهدّى.
+**١٫٦٫٠** أضاف أول تكشيرة، وعلامات الحزب والجزء، وطُرز القاهرة وديانت وإندو-باك،
+وترويسة وإطار يوفّرهما التطبيق المستضيف. سجلّ تصميم ذلك الإصدار في
 [`docs/roadmap/next-mushaf-reader.md`](docs/roadmap/next-mushaf-reader.md).
 
 ### التثبيت
@@ -498,7 +512,7 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.sherifshabans:mushaf-text:1.6.0")
+    implementation("com.github.sherifshabans:mushaf-text:1.7.0")
 }
 ```
 
@@ -506,7 +520,7 @@ Groovy (`build.gradle`):
 
 ```groovy
 repositories { maven { url 'https://jitpack.io' } }
-dependencies { implementation 'com.github.sherifshabans:mushaf-text:1.6.0' }
+dependencies { implementation 'com.github.sherifshabans:mushaf-text:1.7.0' }
 ```
 
 المتطلبات: `minSdk 21` وJetpack Compose. والمكتبة تزيد حجم التطبيق نحو ١٫٧ ميجا (النصّ ١٫٤ +
@@ -703,28 +717,41 @@ MushafDecoration.Classic.copy(
 
 ### تقليب الورقة (`PageTurn`)
 
-`pageTurn = PageTurn.Curl` بيقليبل ورقة زي المصحف المركّب: الحافة بترتفع ويظهر
-ظهر الورقة على طول التكشيرة، والصفحة الجاية تتكشف تحت. الافتراضي يفضل
-`PageTurn.Slide` (الانزلاق اليميني-اليساري). اللمسات جوّه عمود النص تفضل لمسات
-آيات، ولمسات الهامش بتقلّب الورقة.
+`pageTurn` بيختار الحركة. الافتراضي يفضل `PageTurn.Slide`. نداءات ١٫٦٫٠ اللي
+بتمرّر `Slide` أو `Curl` بتفضل تتترجم؛ و`when` من غير `else` محتاج فرع لكل قيمة
+جديدة.
+
+| القيمة | الحركة |
+|---|---|
+| `Slide` | انزلاق من اليمين للشمال. السحب هو `currentPageOffsetFraction`، والصفحة بتهدى بخروج سريع ودخول بطيء، وعلى الحافة ظلّ خفيف. |
+| `Curl` | تكشيرة من الزاوية لو الإصبع بدأ عندها، أو قشرة أسطوانية من نص الحافة. ظهر الورقة والظل بيتبعوا الإصبع. |
+| `Flip` | الورقة بتدور حول الكعب (الحافة اليمين في التقدّم) وبتغمق وهي بتتقفل. الصفحة الجاية مفروشة تحتها. الدوران بيقف عند ٩٠° عشان الصفحة ما تنعكسش. |
+| `Fade` | الصفحة اللي بتخرج بتتلاشى وترجع لتحت شوية، والجاية بتظهر. |
+| `Cover` | الصفحة الجاية بتتسحب من حافة الكتاب وتغطي الحالية، بظل على حرفها. |
 
 ```kotlin
 MushafPager(
     state = rememberMushafPagerState(22),
-    pageTurn = PageTurn.Curl,
+    pageTurn = PageTurn.Curl,   // أو Flip أو Fade أو Cover أو Slide
     decoration = MushafDecoration.Madinah,
 )
 ```
 
-أثناء التكشيرة، `state.currentPageOffsetFraction` يفضل `0` — هو **مش** تقدّم
-التكشيرة. اللي محتاج الكسر يفضل على `PageTurn.Slide`.
+المصحف بيتقلب من اليمين للشمال: الإصبع اللي بيتحرك يمين بيكشف الصفحة الجاية.
+اللمسات جوّه عمود النص تفضل لمسات آيات، ولمسات هامش الإطار بتقلب الورقة. في
+`Curl` و`Flip` و`Fade` و`Cover`، `state.currentPageOffsetFraction` يفضل `0` —
+هو **مش** تقدّم التقليبة. اللي محتاج الكسر يفضل على `PageTurn.Slide`. لما الإصبع
+يسيب، الورقة بتهدى لأقرب صفحة.
 
 ### الصفحة المزدوجة (`MushafSpread`)
 
 `spread = MushafSpread.Auto` بيبين الصفحة وزوجتها جنب بعض لما مساحة الصفحة تبقى
 ٦٠٠dp على الأقل عرضًا: الفردية يمينًا والزوجية شمالًا زي الكتاب المفتوح.
 الصفحة ١ شمالها داخل الكتاب الفاضي. و`state.currentPage` يفضل يعنّي صفحة واحدة.
-الزوجية **ثابتة** حاليًا — لسه ما بتقلّبلش زي الورقة.
+
+التكشيرة والقلب بيقلّبوا ورقة واحدة حول الكعب (الصفحة اللي على الحافة هي اللي
+بتتحرك، والصفحة المقابلة بتتبدّل في نص التقليبة). الانزلاق والتلاشي والتغطية
+بيحرّكوا الفتحة كلها، وانزلاق واحد بينقل فتحة كاملة مش نفس الزوجتين تاني.
 
 ### تظليل الآيات
 

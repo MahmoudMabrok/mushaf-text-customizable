@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import kotlin.math.abs
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -77,6 +78,132 @@ class MushafCurlSliceTest {
         assertEquals(at.backLeft, over.backLeft, 0f)
     }
 }
+
+/** Dog-ear and edge geometry, plus where a spread leaf lands. */
+class MushafTurnGeometryTest {
+
+    private val w = 1000f
+    private val h = 1800f
+
+    @Test
+    fun cornerAtRestIsTheWholePage() {
+        val fold = cornerFoldAtProgress(w, h, progress = 0f)
+        assertEquals(false, fold.curled)
+        assertEquals(w * h, polygonArea(fold.flat), 1f)
+        assertTrue(fold.back.isEmpty())
+    }
+
+    @Test
+    fun cornerTipIsTheReflectionOfTheCorner() {
+        val fold = cornerFoldAtProgress(w, h, progress = 0.5f)
+        val reflected = fold.apex
+        // The apex stored on the fold is the tip we asked for, and the peeled
+        // corner's reflection must land on it.
+        val corner = androidx.compose.ui.geometry.Offset(0f, h)
+        val dx = reflected.x - corner.x
+        val dy = reflected.y - corner.y
+        assertTrue("tip should have left the corner", hypot(dx, dy) > 100f)
+        assertTrue(fold.curled)
+        assertTrue("back face is drawn", fold.back.size >= 3)
+        assertTrue("the peeled corner is not still flat", !pointInPolygon(corner, fold.flat))
+        assertTrue(
+            "the far corner stays flat at mid-turn",
+            pointInPolygon(androidx.compose.ui.geometry.Offset(w - 2f, 2f), fold.flat),
+        )
+    }
+
+    @Test
+    fun cornerProgressSamplesAreOrdered() {
+        val areas = listOf(0.25f, 0.5f, 0.75f).map { p ->
+            polygonArea(cornerFoldAtProgress(w, h, p).flat) / (w * h)
+        }
+        assertTrue("0.25 should keep most of the sheet, was ${areas[0]}", areas[0] > 0.45f)
+        assertTrue("0.50 should be a real mid peel, was ${areas[1]}", areas[1] in 0.15f..0.8f)
+        assertTrue("0.75 should leave a minority of the sheet, was ${areas[2]}", areas[2] < 0.55f)
+        assertTrue("later progress peels more", areas[0] > areas[1] && areas[1] > areas[2])
+    }
+
+    @Test
+    fun finishedCornerLeavesNoSheet() {
+        val fold = cornerFoldAtProgress(w, h, progress = 1f)
+        assertTrue("flat area ${polygonArea(fold.flat)}", polygonArea(fold.flat) < 1f)
+    }
+
+    @Test
+    fun backwardCornerMirrorsForward() {
+        val forward = cornerFoldAtProgress(w, h, 0.4f, forward = true, fromTop = false)
+        val backward = cornerFoldAtProgress(w, h, 0.4f, forward = false, fromTop = false)
+        assertEquals(polygonArea(forward.flat), polygonArea(backward.flat), 2f)
+        val fwdCorner = androidx.compose.ui.geometry.Offset(1f, h - 1f)
+        val backCorner = androidx.compose.ui.geometry.Offset(w - 1f, h - 1f)
+        assertTrue(!pointInPolygon(fwdCorner, forward.flat))
+        assertTrue(!pointInPolygon(backCorner, backward.flat))
+    }
+
+    @Test
+    fun edgeCurlSettledEndsHaveNoStrip() {
+        for (p in listOf(0f, 1f)) {
+            val e = edgeCurl(w, p, forward = true, maxBack = 40f, maxShadow = 60f)
+            assertTrue(e.settled)
+            assertEquals(0f, e.back, 0f)
+            assertEquals(0f, e.bow, 0f)
+        }
+    }
+
+    @Test
+    fun edgeCurlAtHalfSitsOnTheFinger() {
+        val e = edgeCurl(w, 0.5f, forward = true, maxBack = 40f, maxShadow = 60f)
+        assertEquals(500f, e.boundary, 0.5f)
+        assertTrue(e.back > 0f)
+        assertTrue(e.bow > 0f)
+        assertTrue(!e.settled)
+    }
+
+    @Test
+    fun flipNeverMirrors() {
+        for (p in listOf(0f, 0.25f, 0.5f, 0.75f, 1f)) {
+            val forward = flipDegrees(p, forward = true)
+            val backward = flipDegrees(p, forward = false)
+            assertTrue(abs(forward) <= 90f)
+            assertTrue(abs(backward) <= 90f)
+            assertEquals(-p * 90f, forward, 0.01f)
+            assertEquals(p * 90f, backward, 0.01f)
+        }
+    }
+
+    @Test
+    fun spreadLeafTargets() {
+        assertEquals("page 1 opens onto page 2", 1, spreadLeafTarget(0, forward = true))
+        assertEquals("pages 1–2 turn onto 3", 2, spreadLeafTarget(1, forward = true))
+        assertEquals(50, spreadLeafTarget(49, forward = true)) // page 50 → page 51
+        assertEquals(50, spreadLeafTarget(48, forward = true)) // page 49 → page 51
+        assertEquals(603, spreadLeafTarget(603, forward = true)) // already the last opening
+        assertEquals(0, spreadLeafTarget(1, forward = false)) // pages 1–2 close to page 1
+        assertEquals(1, spreadLeafTarget(2, forward = false)) // pages 3–4 back to page 2
+        assertEquals(48, spreadLeafTarget(50, forward = false)) // page 51 back to page 49
+    }
+
+    @Test
+    fun spreadPlanTurnsTheForeEdgeLeaf() {
+        val forward = planSpreadTurn(fromIndex = 49, toIndex = 50)
+        assertTrue(forward.turnLeft)
+        assertTrue(forward.leafForward)
+        assertEquals(50, forward.overPage)
+        assertEquals(52, forward.underPage)
+        assertEquals(49, forward.staticPage)
+        assertEquals(51, forward.incomingStaticPage)
+
+        val backward = planSpreadTurn(fromIndex = 50, toIndex = 48)
+        assertTrue(!backward.turnLeft)
+        assertTrue(!backward.leafForward)
+        assertEquals(51, backward.overPage)
+        assertEquals(49, backward.underPage)
+        assertEquals(52, backward.staticPage)
+        assertEquals(50, backward.incomingStaticPage)
+    }
+}
+
+private fun hypot(x: Float, y: Float) = kotlin.math.hypot(x, y)
 
 /**
  * تقليب الورقة داخل الـpager: السحب يودّي للصفحة الجاية، ولمسة الهامش تقلّب،
