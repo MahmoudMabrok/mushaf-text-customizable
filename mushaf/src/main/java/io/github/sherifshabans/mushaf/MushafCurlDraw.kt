@@ -6,6 +6,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.graphics.Shader
 import android.os.Build
 import androidx.compose.ui.geometry.Offset
@@ -50,6 +52,7 @@ internal class CurlDrawScratch {
     var shadowIdx = ShortArray(0)
     var shadeIdx = ShortArray(0)
     var light = FloatArray(0)
+    val adaptive = AdaptiveCurlMesh()
     private var frontBmp: Bitmap? = null
     private var frontShader: BitmapShader? = null
     private var backBmp: Bitmap? = null
@@ -293,6 +296,69 @@ internal fun drawRealisticCurl(
     curlDrawPath = if (software) "software-mesh" else "mesh"
 }
 
+/** Growable triangle list shared by drawBitmap-style vertices and the CPU rasterizer. */
+internal class AdaptiveCurlMesh {
+    var n = 0
+    var nTri = 0
+    var xy = FloatArray(0)
+    var uv = FloatArray(0)
+    var light = FloatArray(0)
+    var back = BooleanArray(0)
+    var ox = FloatArray(0)
+    var oy = FloatArray(0)
+    var dist = FloatArray(0)
+    var tris = IntArray(0)
+    var packXy = FloatArray(0)
+    var packUv = FloatArray(0)
+    var packColor = IntArray(0)
+
+    fun clear() {
+        n = 0
+        nTri = 0
+    }
+
+    fun vert(
+        x: Float,
+        y: Float,
+        u: Float,
+        v: Float,
+        lit: Float,
+        isBack: Boolean,
+        origX: Float,
+        origY: Float,
+        sampleDist: Float,
+    ): Int {
+        if (n + 1 > light.size) {
+            val m = (light.size * 2).coerceAtLeast(4096)
+            xy = xy.copyOf(m * 2)
+            uv = uv.copyOf(m * 2)
+            light = light.copyOf(m)
+            back = back.copyOf(m)
+            ox = ox.copyOf(m)
+            oy = oy.copyOf(m)
+            dist = dist.copyOf(m)
+        }
+        val i = n++
+        xy[i * 2] = x
+        xy[i * 2 + 1] = y
+        uv[i * 2] = u
+        uv[i * 2 + 1] = v
+        light[i] = lit
+        back[i] = isBack
+        ox[i] = origX
+        oy[i] = origY
+        dist[i] = sampleDist
+        return i
+    }
+
+    fun tri(a: Int, b: Int, c: Int) {
+        if (nTri + 3 > tris.size) tris = tris.copyOf((tris.size * 2).coerceAtLeast(8192))
+        tris[nTri++] = a
+        tris[nTri++] = b
+        tris[nTri++] = c
+    }
+}
+
 internal fun cylinderForPose(
     width: Float,
     height: Float,
@@ -305,31 +371,33 @@ internal fun cylinderForPose(
     dragY: Float,
     fingerY: Float,
 ): CurlCylinder? {
-    val lift = sin(PI * progress.coerceIn(0f, 1f)).toFloat()
-    val base = radiusPx * (0.78f + 0.22f * lift)
+    val p = progress.coerceIn(0f, 1f)
+    val lift = sin(PI * p).toFloat()
+    val page = min(width, height)
     if (edge) {
-        val travel = if (dragX.isNaN()) {
-            progress.coerceIn(0f, 1f) * width
-        } else {
-            abs(dragX)
-        }
-        val radius = min(base, max(travel * 0.45f, 8f))
+        val travel = if (dragX.isNaN()) p * width else abs(dragX)
+        val radius = max(page * (0.05f + 0.08f * lift), radiusPx * 0.55f).coerceAtLeast(8f)
         val cornerX = if (forward) 0f else width
         val fingerX = if (forward) cornerX + travel else cornerX - travel
         val y = fingerY.coerceIn(0f, height)
         return cylinderBetween(Offset(cornerX, y), Offset(fingerX, y), radius)
     }
-    val travel = if (dragX.isNaN()) {
-        (if (forward) 1f else -1f) * progress.coerceIn(0f, 1f) * CYLINDER_TRAVEL * width
+    // Drag distance and the posed preview share one diagonal. At progress 0.5
+    // the finger sits just past the page centre, so the crease covers about half.
+    val along = if (dragX.isNaN()) {
+        p * CYLINDER_TRAVEL
     } else {
-        dragX
+        val travel = if (forward) dragX.coerceAtLeast(0f) else (-dragX).coerceAtLeast(0f)
+        (travel / width.coerceAtLeast(1f)).coerceIn(0f, CYLINDER_TRAVEL)
     }
-    val dy = if (dragX.isNaN()) 0f else dragY
-    val apex = cornerApex(width, height, travel, dy, forward, fromTop)
     val corner = Offset(if (forward) 0f else width, if (fromTop) 0f else height)
-    val reach = hypot(apex.x - corner.x, apex.y - corner.y)
-    val radius = min(base, max(reach * 0.16f, 8f))
-    return cylinderBetween(corner, apex, radius)
+    val opposite = Offset(if (forward) width else 0f, if (fromTop) height else 0f)
+    val finger = Offset(
+        corner.x + (opposite.x - corner.x) * along,
+        corner.y + (opposite.y - corner.y) * along + if (dragX.isNaN()) 0f else dragY * 0.35f,
+    )
+    val radius = max(page * (0.07f + 0.20f * lift), radiusPx * (0.85f + 0.6f * lift)).coerceAtLeast(12f)
+    return cylinderBetween(corner, finger, radius)
 }
 
 private fun drawCurlMesh(
@@ -347,163 +415,277 @@ private fun drawCurlMesh(
     clipBottom: Float,
     software: Boolean = false,
 ) {
-    val cols = 80
-    val rows = 112
-    val stride = cols + 1
-    val vertsN = stride * (rows + 1)
-    scratch.ensure(vertsN, cols * rows)
-    val sx = front.width / width
-    val sy = front.height / height
-    val backSx = back.width / width
-    val backSy = back.height / height
+    val mesh = scratch.adaptive
+    buildAdaptiveMesh(mesh, front, back, versoIsDistinct, width, height, cylinder)
+    if (mesh.nTri < 3) return
+    if (software) {
+        println("[mushaf] adaptive mesh verts=${mesh.n} tris=${mesh.nTri / 3} radius=${cylinder.radius}")
+        rasterizeCurl(
+            canvas, front, back, versoIsDistinct, mesh, cylinder,
+            clipLeft, clipTop, clipRight, clipBottom,
+        )
+        return
+    }
+    val pad = cylinder.radius
+    canvas.save()
+    canvas.clipRect(clipLeft - pad, clipTop - pad, clipRight + pad, clipBottom + pad)
+    drawShadowVerts(canvas, mesh, scratch.shadowPaint, cylinder, hole = true, ox = 0f, oy = 0f, scale = 1f)
+    drawShadowVerts(
+        canvas, mesh, scratch.shadowPaint, cylinder, hole = false,
+        ox = cylinder.radius * 0.04f, oy = cylinder.radius * 0.09f, scale = 0.5f,
+    )
+    val paint = scratch.meshPaint
+    paint.xfermode = null
+    paint.shader = null
+    if (versoIsDistinct && back !== front) {
+        drawTextured(canvas, mesh, paint, front, wantBack = false)
+        drawTextured(canvas, mesh, paint, back, wantBack = true)
+    } else {
+        drawTextured(canvas, mesh, paint, front, wantBack = null)
+    }
+    paint.shader = null
+    paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.MULTIPLY)
+    drawLightVerts(canvas, mesh, paint)
+    paint.xfermode = null
+    canvas.restore()
+}
+
+/**
+ * Coarse page grid, split again wherever the cylinder bends the sheet.
+ * Device drawVertices and the CPU rasterizer both consume this triangle list.
+ */
+private fun buildAdaptiveMesh(
+    mesh: AdaptiveCurlMesh,
+    front: Bitmap,
+    back: Bitmap,
+    versoIsDistinct: Boolean,
+    width: Float,
+    height: Float,
+    cylinder: CurlCylinder,
+) {
+    mesh.clear()
+    val cols = 40
+    val rows = 56
     val camZ = max(width, height) * 2.15f
     val camX = width * 0.5f
     val camY = height * 0.46f
-
+    val arc = PI.toFloat() * cylinder.radius
     fun project(x: Float, y: Float, z: Float): Pair<Float, Float> {
         val f = camZ / (camZ - z).coerceAtLeast(1f)
         return (camX + (x - camX) * f) to (camY + (y - camY) * f)
     }
-
-    val faceBack = BooleanArray(vertsN)
-    for (row in 0..rows) {
-        val py = height * row / rows
-        for (col in 0..cols) {
-            val px = width * col / cols
-            val s = sampleCylinder(px, py, cylinder)
-            val (qx, qy) = project(s.x, s.y, s.z)
-            val i = row * stride + col
-            val o = i * 2
-            scratch.verts[o] = qx
-            scratch.verts[o + 1] = qy
-            scratch.texs[o] = px * sx
-            scratch.texs[o + 1] = py * sy
-            scratch.backTexs[o] = if (versoIsDistinct) (width - px) * backSx else px * sx
-            scratch.backTexs[o + 1] = py * if (versoIsDistinct) backSy else sy
-            scratch.colors[i] = curlShadeOverlay(s)
-            scratch.light[i] = curlLightFactor(s)
-            faceBack[i] = s.back
-            // Shadow sits on the page the leaf lifted off, darkest by the roll.
-            val shade = if (s.dist > 1f) {
-                val near = exp(-s.dist / (cylinder.radius * 1.15f))
-                val lift = (s.z / (cylinder.radius * 2f)).coerceIn(0f, 1f)
-                ((120f * near + 70f * lift) * (0.55f + 0.45f * sin(PI * (s.theta / PI.toFloat()).coerceIn(0f, 1f)).toFloat()))
-                    .toInt().coerceIn(0, 170)
-            } else {
-                0
-            }
-            val (sx0, sy0) = project(px + 2.5f, py + 7f, 0f)
-            scratch.shadowVerts[o] = sx0
-            scratch.shadowVerts[o + 1] = sy0
-            scratch.shadowColors[i] = Color.argb(shade, 0, 0, 0)
-        }
-    }
-
-    var frontCount = 0
-    var backCount = 0
-    var shadowCount = 0
-    val limit = max(width, height) * 0.08f
-    for (row in 0 until rows) {
-        for (col in 0 until cols) {
-            val i00 = row * stride + col
-            val i10 = i00 + 1
-            val i01 = i00 + stride
-            val i11 = i01 + 1
-            if (!quadSane(scratch.verts, i00, i10, i01, i11, limit)) continue
-            val anyBack = faceBack[i00] || faceBack[i10] || faceBack[i01] || faceBack[i11]
-            val anyFront = !faceBack[i00] || !faceBack[i10] || !faceBack[i01] || !faceBack[i11]
-            if (anyFront) frontCount = writeQuad(scratch.frontIdx, frontCount, i00, i10, i01, i11)
-            if (anyBack) backCount = writeQuad(scratch.backIdx, backCount, i00, i10, i01, i11)
-            if (scratch.shadowColors[i00] > 0 || scratch.shadowColors[i11] > 0) {
-                shadowCount = writeQuad(scratch.shadowIdx, shadowCount, i00, i10, i01, i11)
-            }
-        }
-    }
-
-    if (software) {
-        // Robolectric's Skia paints drawBitmapMesh and drawVertices a flat green.
-        // Rasterize these vertices on the CPU; the device path below is drawBitmapMesh.
-        rasterizeCurl(
-            canvas, front, scratch.verts, scratch.light, cols, rows, stride,
-            width, height, clipLeft, clipTop, clipRight, clipBottom,
+    fun emit(x0: Float, y0: Float, x1: Float, y1: Float, depth: Int) {
+        val s00 = sampleCylinder(x0, y0, cylinder)
+        val s10 = sampleCylinder(x1, y0, cylinder)
+        val s01 = sampleCylinder(x0, y1, cylinder)
+        val s11 = sampleCylinder(x1, y1, cylinder)
+        val p00 = project(s00.x, s00.y, s00.z)
+        val p10 = project(s10.x, s10.y, s10.z)
+        val p01 = project(s01.x, s01.y, s01.z)
+        val p11 = project(s11.x, s11.y, s11.z)
+        val maxEdge = maxOf(
+            hypot(p00.first - p10.first, p00.second - p10.second),
+            hypot(p00.first - p01.first, p00.second - p01.second),
+            hypot(p10.first - p11.first, p10.second - p11.second),
+            hypot(p01.first - p11.first, p01.second - p11.second),
         )
-        return
+        val dMin = minOf(s00.dist, s10.dist, s01.dist, s11.dist)
+        val dMax = maxOf(s00.dist, s10.dist, s01.dist, s11.dist)
+        val onRoll = dMax > -8f && dMin < arc + 10f
+        val mixed = (s00.back || s10.back || s01.back || s11.back) &&
+            (!s00.back || !s10.back || !s01.back || !s11.back)
+        val split = (depth < 2 && onRoll && maxEdge > 3.4f) ||
+            (mixed && depth < 3 && maxEdge > 1.8f)
+        if (split) {
+            val mx = (x0 + x1) * 0.5f
+            val my = (y0 + y1) * 0.5f
+            emit(x0, y0, mx, my, depth + 1)
+            emit(mx, y0, x1, my, depth + 1)
+            emit(x0, my, mx, y1, depth + 1)
+            emit(mx, my, x1, y1, depth + 1)
+            return
+        }
+        if (maxEdge > max(width, height) * 0.45f || !maxEdge.isFinite()) return
+        fun add(px: Float, py: Float, s: CurlSample, q: Pair<Float, Float>): Int {
+            val useBack = s.back && versoIsDistinct
+            val bmpW = if (useBack) back.width else front.width
+            val bmpH = if (useBack) back.height else front.height
+            val u = (if (useBack) width - px else px) * bmpW / width
+            val v = py * bmpH / height
+            return mesh.vert(q.first, q.second, u, v, curlLightFactor(s), s.back, px, py, s.dist)
+        }
+        val i00 = add(x0, y0, s00, p00)
+        val i10 = add(x1, y0, s10, p10)
+        val i01 = add(x0, y1, s01, p01)
+        val i11 = add(x1, y1, s11, p11)
+        mesh.tri(i00, i10, i01)
+        mesh.tri(i10, i11, i01)
     }
-    canvas.save()
-    canvas.clipRect(clipLeft - cylinder.radius, clipTop - cylinder.radius, clipRight + cylinder.radius, clipBottom + cylinder.radius)
-    if (shadowCount > 0) {
-        scratch.shadowPaint.shader = null
-        canvas.drawVertices(
-            Canvas.VertexMode.TRIANGLES,
-            vertsN,
-            scratch.shadowVerts, 0,
-            null, 0,
-            scratch.shadowColors, 0,
-            scratch.shadowIdx, 0,
-            shadowCount,
-            scratch.shadowPaint,
-        )
+    val bottom = sampleCylinder(width * 0.5f, height, cylinder).dist
+    val top = sampleCylinder(width * 0.5f, 0f, cylinder).dist
+    val right = sampleCylinder(width, height * 0.5f, cylinder).dist
+    val left = sampleCylinder(0f, height * 0.5f, cylinder).dist
+    val rowsFrom = if (bottom >= top) rows - 1 else 0
+    val rowStep = if (bottom >= top) -1 else 1
+    val colsFrom = if (left >= right) 0 else cols - 1
+    val colStep = if (left >= right) 1 else -1
+    var row = rowsFrom
+    val rowStop = if (rowStep > 0) rows else -1
+    while (row != rowStop) {
+        val y0 = height * row / rows
+        val y1 = height * (row + 1) / rows
+        var col = colsFrom
+        val colStop = if (colStep > 0) cols else -1
+        while (col != colStop) {
+            val x0 = width * col / cols
+            val x1 = width * (col + 1) / cols
+            emit(x0, y0, x1, y1, 0)
+            col += colStep
+        }
+        row += rowStep
     }
-    val paint = scratch.meshPaint
+}
+
+private fun drawTextured(
+    canvas: Canvas,
+    mesh: AdaptiveCurlMesh,
+    paint: Paint,
+    bitmap: Bitmap,
+    wantBack: Boolean?,
+) {
+    val n = packPage(mesh, wantBack)
+    if (n < 3) return
+    paint.shader = BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+    paint.isFilterBitmap = true
+    canvas.drawVertices(
+        Canvas.VertexMode.TRIANGLES,
+        n,
+        mesh.packXy, 0,
+        mesh.packUv, 0,
+        null, 0,
+        null, 0, 0,
+        paint,
+    )
+}
+
+private fun drawLightVerts(canvas: Canvas, mesh: AdaptiveCurlMesh, paint: Paint) {
+    val count = mesh.nTri
+    ensurePack(mesh, count)
+    var o = 0
+    var i = 0
+    while (i < count) {
+        val a = mesh.tris[i]
+        val b = mesh.tris[i + 1]
+        val c = mesh.tris[i + 2]
+        i += 3
+        o = putVert(mesh, o, a, light = true, hole = false, dx = 0f, dy = 0f, alphaScale = 1f, radius = 1f)
+        o = putVert(mesh, o, b, light = true, hole = false, dx = 0f, dy = 0f, alphaScale = 1f, radius = 1f)
+        o = putVert(mesh, o, c, light = true, hole = false, dx = 0f, dy = 0f, alphaScale = 1f, radius = 1f)
+    }
+    if (o < 3) return
+    canvas.drawVertices(
+        Canvas.VertexMode.TRIANGLES, o, mesh.packXy, 0, null, 0, mesh.packColor, 0, null, 0, 0, paint,
+    )
+}
+
+private fun drawShadowVerts(
+    canvas: Canvas,
+    mesh: AdaptiveCurlMesh,
+    paint: Paint,
+    cylinder: CurlCylinder,
+    hole: Boolean,
+    ox: Float,
+    oy: Float,
+    scale: Float,
+) {
     paint.shader = null
-    canvas.drawBitmapMesh(front, cols, rows, scratch.verts, 0, null, 0, paint)
-    scratch.shadowPaint.shader = null
-    val shadeCount = frontCount + backCount
-    if (shadeCount > 0 && shadeCount <= scratch.shadeIdx.size) {
-        System.arraycopy(scratch.frontIdx, 0, scratch.shadeIdx, 0, frontCount)
-        System.arraycopy(scratch.backIdx, 0, scratch.shadeIdx, frontCount, backCount)
-        canvas.drawVertices(
-            Canvas.VertexMode.TRIANGLES,
-            vertsN,
-            scratch.verts, 0,
-            null, 0,
-            scratch.colors, 0,
-            scratch.shadeIdx, 0,
-            shadeCount,
-            scratch.shadowPaint,
-        )
+    paint.xfermode = null
+    val count = mesh.nTri
+    ensurePack(mesh, count)
+    var o = 0
+    var i = 0
+    while (i < count) {
+        val a = mesh.tris[i]
+        val b = mesh.tris[i + 1]
+        val c = mesh.tris[i + 2]
+        i += 3
+        val peak = maxOf(mesh.dist[a], mesh.dist[b], mesh.dist[c])
+        if (peak <= 0.5f) continue
+        o = putVert(mesh, o, a, light = false, hole = hole, dx = ox, dy = oy, alphaScale = scale, radius = cylinder.radius)
+        o = putVert(mesh, o, b, light = false, hole = hole, dx = ox, dy = oy, alphaScale = scale, radius = cylinder.radius)
+        o = putVert(mesh, o, c, light = false, hole = hole, dx = ox, dy = oy, alphaScale = scale, radius = cylinder.radius)
     }
-    canvas.restore()
+    if (o < 3) return
+    canvas.drawVertices(
+        Canvas.VertexMode.TRIANGLES, o, mesh.packXy, 0, null, 0, mesh.packColor, 0, null, 0, 0, paint,
+    )
 }
 
-/** Translucent ink laid over the warped page: dark in the fold, clear on the ridge. */
-private fun curlShadeOverlay(s: CurlSample): Int {
-    if (!s.back && s.dist <= 0f) {
-        val band = 56f
-        val t = if (s.dist > -band) (s.dist + band) / band else 0f
-        return Color.argb((t * 70f).toInt(), 20, 16, 10)
+/** @return vertices written. [wantBack] null keeps every triangle. */
+private fun packPage(mesh: AdaptiveCurlMesh, wantBack: Boolean?): Int {
+    val count = mesh.nTri
+    ensurePack(mesh, count)
+    var o = 0
+    var i = 0
+    while (i < count) {
+        val a = mesh.tris[i]
+        val b = mesh.tris[i + 1]
+        val c = mesh.tris[i + 2]
+        i += 3
+        if (wantBack != null) {
+            val votes = (if (mesh.back[a]) 1 else 0) + (if (mesh.back[b]) 1 else 0) + (if (mesh.back[c]) 1 else 0)
+            if ((votes >= 2) != wantBack) continue
+        }
+        o = putVert(mesh, o, a, light = false, hole = false, dx = 0f, dy = 0f, alphaScale = 1f, radius = 1f)
+        o = putVert(mesh, o, b, light = false, hole = false, dx = 0f, dy = 0f, alphaScale = 1f, radius = 1f)
+        o = putVert(mesh, o, c, light = false, hole = false, dx = 0f, dy = 0f, alphaScale = 1f, radius = 1f)
     }
-    val theta = s.theta
-    val ridge = exp(-((theta - PI.toFloat() * 0.5f) * (theta - PI.toFloat() * 0.5f)) / 0.045f)
-    val nz = abs(cos(theta))
-    val valley = (1f - nz) * if (s.back) 0.55f else 0.72f
-    val alpha = ((valley * (1f - ridge) + if (s.back) 0.28f else 0.08f) * 220f).toInt().coerceIn(0, 210)
-    val highlight = (ridge * if (s.back) 40f else 150f).toInt().coerceIn(0, 180)
-    return if (highlight > alpha) {
-        Color.argb(highlight, 255, 250, 240)
+    return o
+}
+
+private fun ensurePack(mesh: AdaptiveCurlMesh, verts: Int) {
+    if (mesh.packXy.size < verts * 2) {
+        val n = (verts * 2).coerceAtLeast(mesh.packXy.size * 2).coerceAtLeast(1024)
+        mesh.packXy = FloatArray(n)
+        mesh.packUv = FloatArray(n)
+        mesh.packColor = IntArray(n / 2)
+    }
+}
+
+private fun putVert(
+    mesh: AdaptiveCurlMesh,
+    o: Int,
+    v: Int,
+    light: Boolean,
+    hole: Boolean,
+    dx: Float,
+    dy: Float,
+    alphaScale: Float,
+    radius: Float,
+): Int {
+    val x = if (hole) mesh.ox[v] else mesh.xy[v * 2]
+    val y = if (hole) mesh.oy[v] else mesh.xy[v * 2 + 1]
+    mesh.packXy[o * 2] = x + dx
+    mesh.packXy[o * 2 + 1] = y + dy
+    mesh.packUv[o * 2] = mesh.uv[v * 2]
+    mesh.packUv[o * 2 + 1] = mesh.uv[v * 2 + 1]
+    mesh.packColor[o] = if (light) {
+        val lit = mesh.light[v]
+        if (mesh.back[v]) argb(255, lit * 0.99f, lit * 0.975f, lit * 0.94f) else argb(255, lit, lit, lit)
+    } else if (radius > 2f) {
+        val a = (shadowAlpha(mesh.dist[v], radius) * alphaScale).toInt().coerceIn(0, 220)
+        Color.argb(a, 0, 0, 0)
     } else {
-        Color.argb(alpha, 28, 20, 12)
+        Color.WHITE
     }
+    return o + 1
 }
 
-private fun quadSane(verts: FloatArray, a: Int, b: Int, c: Int, d: Int, limit: Float): Boolean {
-    fun dist(i: Int, j: Int): Float {
-        val dx = verts[i * 2] - verts[j * 2]
-        val dy = verts[i * 2 + 1] - verts[j * 2 + 1]
-        return hypot(dx, dy)
-    }
-    val m = max(max(dist(a, b), dist(a, c)), max(dist(b, d), dist(c, d)))
-    return m < limit && m.isFinite()
-}
-
-private fun writeQuad(dst: ShortArray, at: Int, i00: Int, i10: Int, i01: Int, i11: Int): Int {
-    dst[at] = i00.toShort()
-    dst[at + 1] = i10.toShort()
-    dst[at + 2] = i01.toShort()
-    dst[at + 3] = i10.toShort()
-    dst[at + 4] = i11.toShort()
-    dst[at + 5] = i01.toShort()
-    return at + 6
+private fun shadowAlpha(dist: Float, radius: Float): Int {
+    if (dist <= 0.4f) return 0
+    val tight = exp(-dist / (radius * 0.58f))
+    val soft = exp(-dist / (radius * 1.65f))
+    return (220f * tight + 90f * soft).toInt().coerceIn(0, 230)
 }
 
 /**
@@ -537,127 +719,238 @@ private fun invokeAgsl(
     }
 }
 
-/** 1 = the page colour, lower = the inner fold. */
+/** 1 = the page colour. The back stays nearly opaque; the fold goes dark. */
 private fun curlLightFactor(s: CurlSample): Float {
     if (!s.back && s.dist <= 0f) {
-        val band = 56f
+        val band = 90f
         val t = if (s.dist > -band) (s.dist + band) / band else 0f
-        return 1f - 0.18f * t
+        return 1f - 0.42f * t * t
     }
     val theta = s.theta
-    val ridge = exp(-((theta - PI.toFloat() * 0.5f) * (theta - PI.toFloat() * 0.5f)) / 0.04f)
     val nz = abs(cos(theta))
-    val base = if (s.back) 0.62f + 0.2f * nz else 0.38f + 0.62f * nz
-    val spec = ridge * if (s.back) 0.12f else 0.42f
-    return (base + spec).coerceIn(0.22f, 1.15f)
+    if (s.back) {
+        val fold = (1f - nz).coerceIn(0f, 1f)
+        return (0.98f - 0.34f * fold * fold).coerceIn(0.62f, 0.99f)
+    }
+    val ridge = exp(-((theta - PI.toFloat() * 0.5f) * (theta - PI.toFloat() * 0.5f)) / 0.055f)
+    return (0.22f + 0.78f * nz + 0.08f * ridge).coerceIn(0.18f, 1f)
 }
 
 /**
- * CPU rasterizer of the cylinder mesh. Same vertices as [Canvas.drawBitmapMesh],
- * bilinear samples, used for screenshots because Robolectric's mesh sampler
- * does not return the bitmap's texels.
+ * CPU rasterizer of [AdaptiveCurlMesh]. Same triangles, UVs and shadow
+ * placement as the drawVertices path. Bilinear samples, with coverage on
+ * the silhouette so the frame does not stair-step.
  */
 private fun rasterizeCurl(
     canvas: Canvas,
-    bitmap: Bitmap,
-    verts: FloatArray,
-    light: FloatArray,
-    cols: Int,
-    rows: Int,
-    stride: Int,
-    width: Float,
-    height: Float,
+    front: Bitmap,
+    back: Bitmap,
+    versoIsDistinct: Boolean,
+    mesh: AdaptiveCurlMesh,
+    cylinder: CurlCylinder,
     clipLeft: Float,
     clipTop: Float,
     clipRight: Float,
     clipBottom: Float,
 ) {
-    val src = IntArray(bitmap.width * bitmap.height)
-    bitmap.getPixels(src, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-    val left = kotlin.math.floor(clipLeft.toDouble()).toInt()
-    val top = kotlin.math.floor(clipTop.toDouble()).toInt()
-    val right = kotlin.math.ceil(clipRight.toDouble()).toInt().coerceAtLeast(left + 1)
-    val bottom = kotlin.math.ceil(clipBottom.toDouble()).toInt().coerceAtLeast(top + 1)
-    val bw = right - left
-    val bh = bottom - top
+    val srcF = IntArray(front.width * front.height)
+    front.getPixels(srcF, 0, front.width, 0, 0, front.width, front.height)
+    val srcB = if (versoIsDistinct && back !== front) {
+        IntArray(back.width * back.height).also {
+            back.getPixels(it, 0, back.width, 0, 0, back.width, back.height)
+        }
+    } else {
+        srcF
+    }
+    val pad = cylinder.radius * 0.35f
+    val left = kotlin.math.floor((clipLeft - pad).toDouble()).toInt()
+    val top = kotlin.math.floor((clipTop - pad).toDouble()).toInt()
+    val right = kotlin.math.ceil((clipRight + pad).toDouble()).toInt().coerceAtLeast(left + 1)
+    val bottom = kotlin.math.ceil((clipBottom + pad).toDouble()).toInt().coerceAtLeast(top + 1)
+    // Two samples per pixel, then a box filter, so the silhouette and the
+    // gold frame are not a one-pixel staircase. The mesh is the same one
+    // drawVertices uses.
+    val ss = 2
+    val bw = (right - left) * ss
+    val bh = (bottom - top) * ss
     val pixels = IntArray(bw * bh)
-    val sx = bitmap.width / width
-    val sy = bitmap.height / height
-    fun drawTri(i0: Int, i1: Int, i2: Int) {
-        val x0 = verts[i0 * 2]; val y0 = verts[i0 * 2 + 1]
-        val x1 = verts[i1 * 2]; val y1 = verts[i1 * 2 + 1]
-        val x2 = verts[i2 * 2]; val y2 = verts[i2 * 2 + 1]
+    fun over(dst: Int, r: Int, g: Int, b: Int, a: Float): Int {
+        if (a >= 0.985f) return (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+        if (a <= 0.01f) return dst
+        val da = ((dst ushr 24) and 0xFF) / 255f
+        val inv = 1f - a
+        val oa = a + da * inv
+        if (oa <= 0.001f) return 0
+        val dr = (dst shr 16) and 0xFF
+        val dg = (dst shr 8) and 0xFF
+        val db = dst and 0xFF
+        val rr = ((r * a + dr * da * inv) / oa).toInt().coerceIn(0, 255)
+        val gg = ((g * a + dg * da * inv) / oa).toInt().coerceIn(0, 255)
+        val bb = ((b * a + db * da * inv) / oa).toInt().coerceIn(0, 255)
+        return ((oa * 255f).toInt().coerceIn(0, 255) shl 24) or (rr shl 16) or (gg shl 8) or bb
+    }
+    fun raster(
+        i0: Int,
+        i1: Int,
+        i2: Int,
+        hole: Boolean,
+        shadow: Boolean,
+        alphaScale: Float,
+        shiftX: Float,
+        shiftY: Float,
+    ) {
+        val x0: Float
+        val y0: Float
+        val x1: Float
+        val y1: Float
+        val x2: Float
+        val y2: Float
+        if (hole) {
+            x0 = mesh.ox[i0] + shiftX; y0 = mesh.oy[i0] + shiftY
+            x1 = mesh.ox[i1] + shiftX; y1 = mesh.oy[i1] + shiftY
+            x2 = mesh.ox[i2] + shiftX; y2 = mesh.oy[i2] + shiftY
+        } else {
+            x0 = mesh.xy[i0 * 2] + shiftX; y0 = mesh.xy[i0 * 2 + 1] + shiftY
+            x1 = mesh.xy[i1 * 2] + shiftX; y1 = mesh.xy[i1 * 2 + 1] + shiftY
+            x2 = mesh.xy[i2 * 2] + shiftX; y2 = mesh.xy[i2 * 2 + 1] + shiftY
+        }
         val denom = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
-        if (abs(denom) < 0.25f) return
-        val minX = max(left, kotlin.math.floor(min(x0, min(x1, x2)).toDouble()).toInt())
-        val maxX = min(right - 1, kotlin.math.ceil(max(x0, max(x1, x2)).toDouble()).toInt())
-        val minY = max(top, kotlin.math.floor(min(y0, min(y1, y2)).toDouble()).toInt())
-        val maxY = min(bottom - 1, kotlin.math.ceil(max(y0, max(y1, y2)).toDouble()).toInt())
-        val col0 = i0 % stride
-        val row0 = i0 / stride
-        val col1 = i1 % stride
-        val row1 = i1 / stride
-        val col2 = i2 % stride
-        val row2 = i2 / stride
-        val u0 = width * col0 / cols * sx
-        val v0 = height * row0 / rows * sy
-        val u1 = width * col1 / cols * sx
-        val v1 = height * row1 / rows * sy
-        val u2 = width * col2 / cols * sx
-        val v2 = height * row2 / rows * sy
-        val l0 = light[i0]; val l1 = light[i1]; val l2 = light[i2]
+        if (abs(denom) < 0.2f) return
+        val minX = max(0, kotlin.math.floor(((min(x0, min(x1, x2)) - left) * ss).toDouble()).toInt() - 1)
+        val maxX = min(bw - 1, kotlin.math.ceil(((max(x0, max(x1, x2)) - left) * ss).toDouble()).toInt() + 1)
+        val minY = max(0, kotlin.math.floor(((min(y0, min(y1, y2)) - top) * ss).toDouble()).toInt() - 1)
+        val maxY = min(bh - 1, kotlin.math.ceil(((max(y0, max(y1, y2)) - top) * ss).toDouble()).toInt() + 1)
+        if (minX > maxX || minY > maxY) return
+        val votes = (if (mesh.back[i0]) 1 else 0) + (if (mesh.back[i1]) 1 else 0) + (if (mesh.back[i2]) 1 else 0)
+        val isBack = votes >= 2
+        val bitmap = if (isBack && versoIsDistinct) back else front
+        val src = if (isBack && versoIsDistinct) srcB else srcF
+        val u0 = mesh.uv[i0 * 2]; val v0 = mesh.uv[i0 * 2 + 1]
+        val u1 = mesh.uv[i1 * 2]; val v1 = mesh.uv[i1 * 2 + 1]
+        val u2 = mesh.uv[i2 * 2]; val v2 = mesh.uv[i2 * 2 + 1]
+        val l0 = mesh.light[i0]; val l1 = mesh.light[i1]; val l2 = mesh.light[i2]
+        val a0 = shadowAlpha(mesh.dist[i0], cylinder.radius) * alphaScale
+        val a1 = shadowAlpha(mesh.dist[i1], cylinder.radius) * alphaScale
+        val a2 = shadowAlpha(mesh.dist[i2], cylinder.radius) * alphaScale
         var y = minY
         while (y <= maxY) {
             var x = minX
-            val py = y + 0.5f
+            val py = top + (y + 0.5f) / ss
             while (x <= maxX) {
-                val px = x + 0.5f
+                val px = left + (x + 0.5f) / ss
                 val w0 = ((y1 - y2) * (px - x2) + (x2 - x1) * (py - y2)) / denom
                 val w1 = ((y2 - y0) * (px - x2) + (x0 - x2) * (py - y2)) / denom
                 val w2 = 1f - w0 - w1
-                if (w0 >= -0.02f && w1 >= -0.02f && w2 >= -0.02f) {
-                    val u = (w0 * u0 + w1 * u1 + w2 * u2).coerceIn(0f, bitmap.width - 1.001f)
-                    val v = (w0 * v0 + w1 * v1 + w2 * v2).coerceIn(0f, bitmap.height - 1.001f)
-                    val lx = (w0 * l0 + w1 * l1 + w2 * l2).coerceIn(0.2f, 1.2f)
-                    val ix = u.toInt()
-                    val iy = v.toInt()
-                    val fx = u - ix
-                    val fy = v - iy
-                    val i00 = src[iy * bitmap.width + ix]
-                    val i10 = src[iy * bitmap.width + min(ix + 1, bitmap.width - 1)]
-                    val i01 = src[min(iy + 1, bitmap.height - 1) * bitmap.width + ix]
-                    val i11 = src[min(iy + 1, bitmap.height - 1) * bitmap.width + min(ix + 1, bitmap.width - 1)]
-                    val r = blend(i00, i10, i01, i11, fx, fy, 16, lx)
-                    val g = blend(i00, i10, i01, i11, fx, fy, 8, lx)
-                    val b = blend(i00, i10, i01, i11, fx, fy, 0, lx)
-                    pixels[(y - top) * bw + (x - left)] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                val minW = minOf(w0, w1, w2)
+                if (minW >= -0.25f) {
+                    val inside = minW >= -0.05f
+                    val cover = if (inside) 1f else ((minW + 0.25f) / 0.2f).coerceIn(0f, 1f)
+                    if (cover > 0.04f) {
+                        val idx = y * bw + x
+                        val occupied = (pixels[idx] ushr 24) > 240
+                        if (!inside && occupied) {
+                            // leave an opaque page pixel alone
+                        } else if (shadow) {
+                            val sa = ((w0 * a0 + w1 * a1 + w2 * a2).coerceIn(0f, 220f)) / 255f * cover
+                            pixels[idx] = over(pixels[idx], 0, 0, 0, sa)
+                        } else {
+                            val u = (w0 * u0 + w1 * u1 + w2 * u2).coerceIn(0f, bitmap.width - 1.001f)
+                            val v = (w0 * v0 + w1 * v1 + w2 * v2).coerceIn(0f, bitmap.height - 1.001f)
+                            val lit = (w0 * l0 + w1 * l1 + w2 * l2).coerceIn(0.15f, 1f)
+                            val warm = isBack
+                            val lr = if (warm) lit * 0.99f else lit
+                            val lg = if (warm) lit * 0.975f else lit
+                            val lb = if (warm) lit * 0.94f else lit
+                            val ix = u.toInt()
+                            val iy = v.toInt()
+                            val fx = u - ix
+                            val fy = v - iy
+                            val row1 = min(iy + 1, bitmap.height - 1)
+                            val col1 = min(ix + 1, bitmap.width - 1)
+                            val i00 = src[iy * bitmap.width + ix]
+                            val i10 = src[iy * bitmap.width + col1]
+                            val i01 = src[row1 * bitmap.width + ix]
+                            val i11 = src[row1 * bitmap.width + col1]
+                            val r = (sample(i00, i10, i01, i11, fx, fy, 16) * lr).toInt().coerceIn(0, 255)
+                            val g = (sample(i00, i10, i01, i11, fx, fy, 8) * lg).toInt().coerceIn(0, 255)
+                            val b = (sample(i00, i10, i01, i11, fx, fy, 0) * lb).toInt().coerceIn(0, 255)
+                            pixels[idx] = over(pixels[idx], r, g, b, cover)
+                        }
+                    }
                 }
                 x++
             }
             y++
         }
     }
-    for (row in 0 until rows) {
-        for (col in 0 until cols) {
-            val i00 = row * stride + col
-            val i10 = i00 + 1
-            val i01 = i00 + stride
-            val i11 = i01 + 1
-            drawTri(i00, i10, i01)
-            drawTri(i10, i11, i01)
+    var i = 0
+    while (i < mesh.nTri) {
+        val a = mesh.tris[i]
+        val b = mesh.tris[i + 1]
+        val c = mesh.tris[i + 2]
+        i += 3
+        val peak = maxOf(mesh.dist[a], mesh.dist[b], mesh.dist[c])
+        if (peak > 0.5f) {
+            raster(a, b, c, hole = true, shadow = true, alphaScale = 1f, shiftX = 0f, shiftY = 0f)
+            raster(
+                a, b, c, hole = false, shadow = true, alphaScale = 0.55f,
+                shiftX = cylinder.radius * 0.045f, shiftY = cylinder.radius * 0.1f,
+            )
         }
     }
-    val out = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
-    out.setPixels(pixels, 0, bw, 0, 0, bw, bh)
+    i = 0
+    while (i < mesh.nTri) {
+        raster(
+            mesh.tris[i], mesh.tris[i + 1], mesh.tris[i + 2],
+            hole = false, shadow = false, alphaScale = 1f, shiftX = 0f, shiftY = 0f,
+        )
+        i += 3
+    }
+    val ow = right - left
+    val oh = bottom - top
+    val down = IntArray(ow * oh)
+    var y = 0
+    while (y < oh) {
+        var x = 0
+        while (x < ow) {
+            var a = 0
+            var r = 0
+            var g = 0
+            var b = 0
+            var sy = 0
+            while (sy < ss) {
+                var sx = 0
+                val row = (y * ss + sy) * bw + x * ss
+                while (sx < ss) {
+                    val p = pixels[row + sx]
+                    val pa = (p ushr 24) and 0xFF
+                    a += pa
+                    r += ((p shr 16) and 0xFF) * pa
+                    g += ((p shr 8) and 0xFF) * pa
+                    b += (p and 0xFF) * pa
+                    sx++
+                }
+                sy++
+            }
+            if (a > 0) {
+                val aa = a / (ss * ss)
+                down[y * ow + x] = (aa shl 24) or ((r / a) shl 16) or ((g / a) shl 8) or (b / a)
+            }
+            x++
+        }
+        y++
+    }
+    val out = Bitmap.createBitmap(ow, oh, Bitmap.Config.ARGB_8888)
+    out.setPixels(down, 0, ow, 0, 0, ow, oh)
     canvas.drawBitmap(out, left.toFloat(), top.toFloat(), null)
     out.recycle()
 }
 
-private fun blend(c00: Int, c10: Int, c01: Int, c11: Int, fx: Float, fy: Float, shift: Int, light: Float): Int {
-    fun ch(c: Int) = (c shr shift) and 0xFF
+private fun sample(c00: Int, c10: Int, c01: Int, c11: Int, fx: Float, fy: Float, shift: Int): Float {
+    fun ch(c: Int) = ((c shr shift) and 0xFF).toFloat()
     val top = ch(c00) + (ch(c10) - ch(c00)) * fx
     val bot = ch(c01) + (ch(c11) - ch(c01)) * fx
-    return ((top + (bot - top) * fy) * light).toInt().coerceIn(0, 255)
+    return top + (bot - top) * fy
 }
 
 private fun argb(a: Int, r: Float, g: Float, b: Float): Int {

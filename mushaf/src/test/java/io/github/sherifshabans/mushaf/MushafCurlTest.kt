@@ -221,6 +221,10 @@ class MushafTurnGeometryTest {
         val mid = sampleCylinder(w * 0.5f, h * 0.5f, cyl)
         println("[mushaf] corner -> (${corner.x}, ${corner.y}, z=${corner.z}) mid -> (${mid.x}, ${mid.y}, z=${mid.z}, back=${mid.back})")
         assertTrue("mesh edge $maxEdge is a smear", maxEdge < 80f)
+        val crease = hypot(cyl.posX - 0f, cyl.posY - h)
+        val half = hypot(w * 0.5f, h * 0.5f)
+        assertTrue("crease $crease should sit near the page centre $half", abs(crease - half) < half * 0.2f)
+        assertTrue("radius ${cyl.radius} is still a thin roll", cyl.radius > w * 0.18f)
     }
 
     @Test
