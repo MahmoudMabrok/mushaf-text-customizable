@@ -11,8 +11,10 @@ from this commit.
 - **pagecurl.** `PageTurn.Curl` is now
   [oleksandrbalan/pagecurl](https://github.com/oleksandrbalan/pagecurl) 1.5.1
   (Apache-2.0). A rightward swipe, or a tap on the left margin, turns to the
-  next page. The back of the leaf stays nearly opaque, with a soft shadow
-  under the fold. The hand-rolled mesh and the AGSL shader are gone.
+  next page. Each page is opaque paper. The back of the leaf is that paper
+  with only a faint mirrored show-through, and a soft shadow under the fold.
+  On a spread only the active page curls; the facing page stays put.
+  The hand-rolled mesh and the AGSL shader are gone.
   `curlSlice` is unchanged.
 - **One snapshot per gesture.** Each leaf is captured once (and again only if
   its pixels change). Later frames warp that bitmap, so the ayah layout is

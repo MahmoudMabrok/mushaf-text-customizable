@@ -2,6 +2,7 @@
 
 package io.github.sherifshabans.mushaf
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -21,11 +23,12 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import eu.wewox.pagecurl.config.PageCurlConfig
 import eu.wewox.pagecurl.config.rememberPageCurlConfig
 import androidx.compose.animation.core.Animatable
-import androidx.compose.ui.unit.Constraints
 import eu.wewox.pagecurl.page.Edge
 import eu.wewox.pagecurl.page.PageCurl
 import eu.wewox.pagecurl.page.PageCurlState
@@ -78,11 +81,11 @@ internal fun MushafPageCurl(
         }
     }
     if (preview != null) {
-        LaunchedEffect(preview.progress, preview.forward, spread) {
-            repeat(4) {
-                posePageCurl(curlState, preview.progress, preview.forward, spread)
-                if (kotlin.math.abs(curlState.progress) > 0.01f) return@LaunchedEffect
-                kotlinx.coroutines.delay(32)
+        LaunchedEffect(preview.progress, preview.forward) {
+            repeat(10) {
+                posePageCurl(curlState, preview.progress, preview.forward)
+                if (kotlin.math.abs(curlState.progress) > 0.02f) return@LaunchedEffect
+                kotlinx.coroutines.delay(40)
             }
         }
     }
@@ -95,22 +98,28 @@ internal fun MushafPageCurl(
             beyondViewportPageCount = 0,
             userScrollEnabled = false,
         ) {}
-        PageCurl(
-            count = Quran.PAGE_COUNT,
-            state = curlState,
-            config = rememberMushafPageCurlConfig(colors),
-            modifier = Modifier.fillMaxSize(),
-        ) { index ->
-            SideEffect { MushafCurlProbe.composedPages.add(index) }
-            Box(Modifier.fillMaxSize()) {
-                if (!spread) {
-                    pageContent(index)
-                } else {
-                    val (right, left) = spreadPair(index + 1)
-                    Row(Modifier.fillMaxSize()) {
-                        Box(Modifier.weight(1f).fillMaxHeight()) { pageContent(right - 1) }
-                        Box(Modifier.weight(1f).fillMaxHeight()) {
-                            if (left != null) pageContent(left - 1)
+        if (!spread) {
+            ActivePageCurl(curlState, colors, pageContent, Modifier.fillMaxSize())
+        } else {
+            // pagecurl turns one rectangle. The facing page stays a single
+            // opaque sheet; only the active page is inside PageCurl.
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                val page = curlState.current + 1
+                val (right, left) = spreadPair(page)
+                val curlOnRight = page == right
+                Row(Modifier.fillMaxSize()) {
+                    Box(Modifier.weight(1f).fillMaxHeight().background(colors.paper)) {
+                        if (curlOnRight) {
+                            ActivePageCurl(curlState, colors, pageContent)
+                        } else {
+                            pageContent(right - 1)
+                        }
+                    }
+                    Box(Modifier.weight(1f).fillMaxHeight().background(colors.paper)) {
+                        if (!curlOnRight && left != null) {
+                            ActivePageCurl(curlState, colors, pageContent)
+                        } else if (left != null) {
+                            pageContent(left - 1)
                         }
                     }
                 }
@@ -119,12 +128,42 @@ internal fun MushafPageCurl(
     }
 }
 
+@Composable
+private fun ActivePageCurl(
+    state: PageCurlState,
+    colors: MushafColors,
+    pageContent: @Composable (Int) -> Unit,
+    modifier: Modifier = Modifier.fillMaxSize(),
+) {
+    PageCurl(
+        count = Quran.PAGE_COUNT,
+        state = state,
+        config = rememberMushafPageCurlConfig(colors),
+        modifier = modifier,
+    ) { index ->
+        PaperPage(colors, index, pageContent)
+    }
+}
+
+/** Opaque paper first, then the ayahs, so a curl cannot show through the sheet. */
+@Composable
+private fun PaperPage(
+    colors: MushafColors,
+    index: Int,
+    pageContent: @Composable (Int) -> Unit,
+) {
+    SideEffect { MushafCurlProbe.composedPages.add(index) }
+    Box(Modifier.fillMaxSize().background(colors.paper)) {
+        pageContent(index)
+    }
+}
+
 /** Shadow, opaque-paper back, and drag zones tuned toward the reference curl. */
 @Composable
 internal fun rememberMushafPageCurlConfig(colors: MushafColors): PageCurlConfig =
     rememberPageCurlConfig(
         backPageColor = colors.paper,
-        backPageContentAlpha = 0.96f,
+        backPageContentAlpha = 0.1f,
         shadowColor = colors.ink,
         shadowAlpha = 0.55f,
         shadowRadius = 36.dp,
@@ -159,7 +198,6 @@ internal suspend fun posePageCurl(
     state: PageCurlState,
     progress: Float,
     forward: Boolean,
-    spread: Boolean = false,
 ) {
     val internal = PageCurlState::class.java
         .getMethod("getInternalState\$pagecurl_release")
@@ -170,7 +208,7 @@ internal suspend fun posePageCurl(
     if (width < 2f || height < 2f) return
     @Suppress("UNCHECKED_CAST")
     val forwardEdge = internal.javaClass.getMethod("getForward").invoke(internal) as Animatable<Edge, *>
-    forwardEdge.snapTo(mushafCurlEdge(width, height, progress, forward, spread))
+    forwardEdge.snapTo(mushafCurlEdge(width, height, progress, forward))
 }
 
 /**
@@ -182,17 +220,10 @@ internal fun mushafCurlEdge(
     height: Float,
     progress: Float,
     forward: Boolean,
-    spread: Boolean = false,
 ): Edge {
     val p = progress.coerceIn(0.04f, 0.98f)
-    // A single page peels from the right edge across the sheet. On a spread
-    // the same fraction stays on the right-hand page, so one leaf curls.
-    val topX = if (spread) width * (1f - p * 0.42f) else width * (1f - p * 0.35f)
-    val bottomX = if (spread) {
-        width * (1f - p * 0.48f)
-    } else {
-        (width * (1f - p * 1.65f)).coerceAtLeast(0f)
-    }
+    val topX = width * (1f - p * 0.35f)
+    val bottomX = (width * (1f - p * 1.65f)).coerceAtLeast(0f)
     val edge = Edge(Offset(topX, 0f), Offset(bottomX, height))
     if (forward) return edge
     return Edge(Offset(width - edge.top.x, 0f), Offset(width - edge.bottom.x, height))

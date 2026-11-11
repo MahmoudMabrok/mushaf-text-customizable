@@ -45,7 +45,7 @@ class MushafCurlFrames {
 
     @Test
     fun curlAtQuarterHalfAndThreeQuarters() {
-        val pose = mutableStateOf(MushafTurnPreview(0.25f))
+        val pose = mutableStateOf(MushafTurnPreview(0.02f))
         val spread = mutableStateOf(false)
         rule.setContent {
             CompositionLocalProvider(LocalMushafTurnPreview provides pose.value) {
