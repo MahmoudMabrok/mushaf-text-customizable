@@ -1,7 +1,9 @@
 package io.github.sherifshabans.mushaf
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
@@ -29,7 +31,10 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
@@ -689,25 +694,47 @@ private fun MushafPageBody(
                 .fillMaxWidth()
                 .height(canvasHeight)
                 .pointerInput(drawing, contentLeft, contentTop) {
-                    detectTapGestures(
-                        onLongPress = { pos ->
-                            val hit = hitTest(drawing, pos - Offset(contentLeft, contentTop))
-                                ?: return@detectTapGestures
-                            ayahById[hit.token.token.ayahId]?.let { longClickAyah?.invoke(it) }
-                        },
-                        onTap = { pos ->
-                            val hit = hitTest(drawing, pos - Offset(contentLeft, contentTop))
-                                ?: return@detectTapGestures
-                            val ayah = ayahById[hit.token.token.ayahId] ?: return@detectTapGestures
-                            val onRule = clickTajweed
-                            val span = onRule?.let { spanUnder(hit, pos - Offset(contentLeft, contentTop)) }
-                            if (onRule != null && span != null) {
-                                onRule(
-                                    TajweedHit(span.rule, ayah, hit.token.token.text, span.start, span.end)
-                                )
-                            } else clickAyah?.invoke(ayah)
+                    // Initial pass, before a parent curl consumes the down. A miss
+                    // stays unconsumed so a margin tap can still turn the page.
+                    awaitEachGesture {
+                        val down = awaitFirstDown(pass = PointerEventPass.Initial)
+                        val pointer = down.id
+                        var dragged = false
+                        var released: androidx.compose.ui.input.pointer.PointerInputChange? = null
+                        val timedOut = try {
+                            withTimeout(viewConfiguration.longPressTimeoutMillis) {
+                                while (released == null && !dragged) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    val next = event.changes.firstOrNull { it.id == pointer } ?: break
+                                    if ((next.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                                        dragged = true
+                                    } else if (!next.pressed) {
+                                        released = next
+                                    }
+                                }
+                            }
+                            false
+                        } catch (_: TimeoutCancellationException) {
+                            true
                         }
-                    )
+                        if (dragged) return@awaitEachGesture
+                        val local = (released?.position ?: down.position) - Offset(contentLeft, contentTop)
+                        val hit = hitTest(drawing, local) ?: return@awaitEachGesture
+                        val ayah = ayahById[hit.token.token.ayahId] ?: return@awaitEachGesture
+                        down.consume()
+                        released?.consume()
+                        if (timedOut) {
+                            longClickAyah?.invoke(ayah)
+                            return@awaitEachGesture
+                        }
+                        val onRule = clickTajweed
+                        val span = onRule?.let { spanUnder(hit, local) }
+                        if (onRule != null && span != null) {
+                            onRule(TajweedHit(span.rule, ayah, hit.token.token.text, span.start, span.end))
+                        } else {
+                            clickAyah?.invoke(ayah)
+                        }
+                    }
                 }
         ) {
             // ٠) إطار الصفحة إن وُجد — `PageFrame` يرسم الزخرفة وملك حدود النص.

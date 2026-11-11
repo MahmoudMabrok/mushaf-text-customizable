@@ -1,6 +1,5 @@
 package io.github.sherifshabans.mushaf
 
-import android.graphics.Bitmap
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.calculateTargetValue
@@ -34,20 +33,14 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -261,10 +254,6 @@ private fun AnimatedSpread(
     colors: MushafColors,
     pageContent: @Composable (Int) -> Unit,
 ) {
-    if (mode == PageTurn.Curl) {
-        SpreadCurl(plan, edge, fromTop, posed, motion, colors, pageContent)
-        return
-    }
     Row(Modifier.fillMaxSize()) {
         // RTL: the first child is the right-hand page.
         Box(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
@@ -358,261 +347,6 @@ private fun TurnPage(
     pageContent(index)
 }
 
-private class CurlSheets {
-    var front: Bitmap? = null
-    var verso: Bitmap? = null
-    var frontHash: Int = 0
-    var versoHash: Int = 0
-    var hasFront: Boolean = false
-    var hasVerso: Boolean = false
-    val scratch = CurlDrawScratch()
-}
-
-/**
- * Snapshots [content] into [sheets] the first time it draws and again whenever
- * the pixels change (ayahs arriving). The drag never reads this composable, so
- * the heavy page is not redrawn on each frame.
- */
-@Composable
-private fun CaptureOnce(
-    sheets: CurlSheets,
-    slot: Int,
-    paper: Color,
-    drawToScreen: Boolean,
-    onUpdated: () -> Unit,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    Box(
-        modifier.drawWithContent {
-            if (size.width < 2f || size.height < 2f) {
-                if (drawToScreen) {
-                    drawRect(paper)
-                    drawContent()
-                }
-                return@drawWithContent
-            }
-            val shot = captureSheet(paper)
-            val bitmap = shot.asAndroidBitmap().copy(Bitmap.Config.ARGB_8888, false)
-            val hash = curlBitmapHash(bitmap)
-            val changed = if (slot == 0) {
-                !sheets.hasFront || hash != sheets.frontHash
-            } else {
-                !sheets.hasVerso || hash != sheets.versoHash
-            }
-            if (changed) {
-                if (slot == 0) {
-                    sheets.front = bitmap
-                    sheets.frontHash = hash
-                    sheets.hasFront = true
-                } else {
-                    sheets.verso = bitmap
-                    sheets.versoHash = hash
-                    sheets.hasVerso = true
-                }
-                onUpdated()
-            }
-            if (drawToScreen) {
-                drawRect(paper)
-                drawContent()
-            }
-        }
-    ) { content() }
-}
-
-private fun ContentDrawScope.captureSheet(paper: Color): ImageBitmap {
-    // Twice the view, so the cylinder still has texels after it compresses.
-    val scale = 2f
-    val viewW = size.width
-    val viewH = size.height
-    val w = (viewW * scale).toInt().coerceAtLeast(1)
-    val h = (viewH * scale).toInt().coerceAtLeast(1)
-    val image = ImageBitmap(w, h)
-    val offscreen = Canvas(image)
-    val ctx = drawContext
-    val previous = ctx.canvas
-    val previousSize = ctx.size
-    ctx.canvas = offscreen
-    ctx.size = Size(viewW, viewH)
-    try {
-        offscreen.save()
-        offscreen.scale(scale, scale)
-        drawRect(paper)
-        drawContent()
-        offscreen.restore()
-    } finally {
-        ctx.canvas = previous
-        ctx.size = previousSize
-    }
-    return image
-}
-
-@Composable
-private fun CurlStack(
-    under: @Composable () -> Unit,
-    over: @Composable () -> Unit,
-    leafForward: Boolean,
-    edge: Boolean,
-    fromTop: Boolean,
-    posed: Float?,
-    motion: TurnMotion,
-    colors: MushafColors,
-) {
-    val sheets = remember { CurlSheets() }
-    var sheetGen by remember { mutableIntStateOf(0) }
-    val view = LocalView.current
-    val reveal = sheetGen > 0 && sheets.hasFront
-    Box(Modifier.fillMaxSize().clipToBounds()) {
-        Box(Modifier.fillMaxSize().background(colors.paper)) { under() }
-        CaptureOnce(
-            sheets = sheets,
-            slot = 0,
-            paper = colors.paper,
-            drawToScreen = !reveal,
-            onUpdated = { view.post { sheetGen++ } },
-            modifier = Modifier.fillMaxSize(),
-            content = over,
-        )
-        Box(
-            Modifier.fillMaxSize().drawWithContent {
-                val bitmap = sheets.front
-                if (!reveal || bitmap == null) return@drawWithContent
-                val p = poseFraction(posed, motion, leafForward, edge, PageTurn.Curl, size.width)
-                drawIntoCanvas { canvas ->
-                    drawRealisticCurl(
-                        canvas = canvas.nativeCanvas,
-                        front = bitmap,
-                        width = size.width,
-                        height = size.height,
-                        progress = p,
-                        forward = leafForward,
-                        edge = edge,
-                        fromTop = fromTop,
-                        radiusPx = if (edge) 36.dp.toPx() else 52.dp.toPx(),
-                        scratch = sheets.scratch,
-                        dragX = dragX(posed, motion, leafForward, edge, PageTurn.Curl),
-                        dragY = if (posed != null) 0f else motion.dragY,
-                        fingerY = fingerY(posed, motion, edge, fromTop, size.height),
-                    )
-                }
-            }
-        )
-    }
-}
-
-@Composable
-private fun SpreadCurl(
-    plan: SpreadTurnPlan,
-    edge: Boolean,
-    fromTop: Boolean,
-    posed: Float?,
-    motion: TurnMotion,
-    colors: MushafColors,
-    pageContent: @Composable (Int) -> Unit,
-) {
-    val sheets = remember(plan.overPage, plan.underPage, plan.incomingStaticPage) { CurlSheets() }
-    var sheetGen by remember { mutableIntStateOf(0) }
-    val view = LocalView.current
-    val reveal = sheetGen > 0 && sheets.hasFront
-    val right = if (plan.turnLeft) {
-        plan.staticPage
-    } else if (reveal) {
-        plan.underPage
-    } else {
-        plan.overPage
-    }
-    val left = if (plan.turnLeft) {
-        if (reveal) plan.underPage else plan.overPage
-    } else {
-        plan.staticPage
-    }
-    Box(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxSize()) {
-            Box(Modifier.weight(1f).fillMaxHeight()) { PageOrPaper(right, colors, pageContent) }
-            Box(Modifier.weight(1f).fillMaxHeight()) { PageOrPaper(left, colors, pageContent) }
-        }
-        Row(Modifier.fillMaxSize()) {
-            CaptureOnce(
-                sheets = sheets,
-                slot = 0,
-                paper = colors.paper,
-                drawToScreen = false,
-                onUpdated = { view.post { sheetGen++ } },
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-            ) { PageOrPaper(plan.overPage, colors, pageContent) }
-            CaptureOnce(
-                sheets = sheets,
-                slot = 1,
-                paper = colors.paper,
-                drawToScreen = false,
-                onUpdated = { view.post { sheetGen++ } },
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-            ) { PageOrPaper(plan.incomingStaticPage, colors, pageContent) }
-        }
-        Box(
-            Modifier.fillMaxSize().drawWithContent {
-                val bitmap = sheets.front ?: return@drawWithContent
-                if (!reveal) return@drawWithContent
-                val leafW = size.width / 2f
-                val leafOnLeft = plan.turnLeft
-                val p = poseFraction(posed, motion, plan.leafForward, edge, PageTurn.Curl, leafW)
-                val dx = if (posed != null) {
-                    val full = if (edge) leafW else leafW * CYLINDER_TRAVEL
-                    (if (plan.leafForward) 1f else -1f) * p * full
-                } else {
-                    motion.dragX
-                }
-                drawIntoCanvas { canvas ->
-                    val native = canvas.nativeCanvas
-                    native.save()
-                    if (!leafOnLeft) native.translate(leafW, 0f)
-                    drawRealisticCurl(
-                        canvas = native,
-                        front = bitmap,
-                        width = leafW,
-                        height = size.height,
-                        progress = p,
-                        forward = plan.leafForward,
-                        edge = edge,
-                        fromTop = fromTop,
-                        radiusPx = if (edge) 36.dp.toPx() else 52.dp.toPx(),
-                        scratch = sheets.scratch,
-                        dragX = dx,
-                        dragY = if (posed != null) 0f else motion.dragY,
-                        fingerY = fingerY(posed, motion, edge, fromTop, size.height),
-                        verso = sheets.verso,
-                        uprightVerso = sheets.verso != null,
-                        clipLeft = if (leafOnLeft) 0f else -leafW,
-                        clipTop = 0f,
-                        clipRight = if (leafOnLeft) leafW * 2f else leafW,
-                        clipBottom = size.height,
-                    )
-                    native.restore()
-                }
-            }
-        )
-    }
-}
-
-private fun fingerY(
-    posed: Float?,
-    motion: TurnMotion,
-    edge: Boolean,
-    fromTop: Boolean,
-    height: Float,
-): Float {
-    val y = if (posed != null) {
-        when {
-            edge -> height * 0.5f
-            fromTop -> height * 0.14f
-            else -> height * 0.88f
-        }
-    } else {
-        motion.grabY * height + motion.dragY
-    }
-    return y.coerceIn(0f, height)
-}
-
 @Composable
 private fun TurnStack(
     under: @Composable () -> Unit,
@@ -625,10 +359,6 @@ private fun TurnStack(
     motion: TurnMotion,
     colors: MushafColors,
 ) {
-    if (mode == PageTurn.Curl) {
-        CurlStack(under, over, leafForward, edge, fromTop, posed, motion, colors)
-        return
-    }
     Box(Modifier.fillMaxSize().clipToBounds()) {
         Box(Modifier.fillMaxSize().background(colors.paper)) { under() }
         Box(
@@ -779,20 +509,8 @@ private fun poseFraction(
 ): Float {
     if (posed != null) return posed.coerceIn(0f, 1f)
     val travel = if (leafForward) motion.dragX.coerceAtLeast(0f) else (-motion.dragX).coerceAtLeast(0f)
-    val full = if (mode == PageTurn.Curl && !edge) leafWidth * CYLINDER_TRAVEL else leafWidth
+    val full = leafWidth
     return (travel / full.coerceAtLeast(1f)).coerceIn(0f, 1f)
-}
-
-private fun DrawScope.dragX(
-    posed: Float?,
-    motion: TurnMotion,
-    leafForward: Boolean,
-    edge: Boolean,
-    mode: PageTurn,
-): Float {
-    if (posed == null) return motion.dragX
-    val full = if (mode == PageTurn.Curl && !edge) size.width * CYLINDER_TRAVEL else size.width
-    return (if (leafForward) 1f else -1f) * posed.coerceIn(0f, 1f) * full
 }
 
 private fun marginContentRange(
@@ -970,7 +688,7 @@ private class TurnController(initialPage: Int) {
         job?.cancel()
         val leafW = leafWidth()
         val sign = if (leafForward) 1f else -1f
-        val full = if (mode == PageTurn.Curl && !motion.edge) leafW * CYLINDER_TRAVEL else leafW
+        val full = leafW
         val targetX = if (commit) sign * full else 0f
         val targetY = 0f
         val startX = motion.dragX

@@ -246,7 +246,15 @@ fun MushafPager(
                     }
                 }
 
-                PageTurn.Curl, PageTurn.Flip, PageTurn.Fade, PageTurn.Cover -> LeafPager(
+                PageTurn.Curl -> MushafPageCurl(
+                    state = state,
+                    colors = colors,
+                    spread = spreadActive,
+                    modifier = Modifier.fillMaxSize(),
+                    pageContent = singleContent,
+                )
+
+                PageTurn.Flip, PageTurn.Fade, PageTurn.Cover -> LeafPager(
                     state = state,
                     mode = pageTurn,
                     spread = spreadActive,

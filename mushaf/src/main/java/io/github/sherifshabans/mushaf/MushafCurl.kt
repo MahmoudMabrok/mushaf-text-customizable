@@ -36,15 +36,12 @@ enum class PageTurn {
     Slide,
 
     /**
-     * A paper curl that follows the finger. A grab in the top or bottom band
-     * peels that corner: the crease stays perpendicular to the drag, the sheet
-     * stays attached along the spine, and the peeled region rolls through a
-     * cylinder onto a mirrored, tinted back. A grab in the middle rolls the
-     * whole fore-edge as a cylinder. Release flings with the finger's velocity
-     * and settles with a spring.
+     * A paper curl. The sheet peels from the left fore-edge (the next page is
+     * the one a rightward swipe reveals), with a mirrored back and a shadow
+     * under the fold. Drawing and gestures come from oleksandrbalan's pagecurl.
      *
-     * On a two-page spread the leaf curls across the gutter onto the facing
-     * page. `state.currentPageOffsetFraction` stays `0` during a curl — it is
+     * On a two-page spread the opening curls as one sheet.
+     * `state.currentPageOffsetFraction` stays `0` during a curl — it is
      * **not** the curl progress. Callers that need the fraction stay on [Slide].
      */
     Curl,
@@ -148,13 +145,6 @@ fun curlSlice(
  * as finished, because the crease sits halfway from the corner to the tip.
  */
 internal const val CORNER_TRAVEL = 2.8f
-
-/**
- * How far a corner drag travels, in page widths, for the cylinder curl.
- * The corner stays on the sheet through the middle of the turn; the old
- * flat-fold geometry still uses [CORNER_TRAVEL].
- */
-internal const val CYLINDER_TRAVEL = 1.15f
 
 /** Grab band (fraction of height) that peels the whole edge instead of a corner. */
 internal const val EDGE_GRAB_LO = 0.30f

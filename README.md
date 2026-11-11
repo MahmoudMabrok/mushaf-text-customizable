@@ -8,12 +8,12 @@ matching the styles used in the customized reader of QuranyApp.
 
 **English** · [العربية](#العربية)
 
-> **1.7.1 — page curl.** Curl is a cylindrical roll of the real page (mirrored
-> back, shadow, finger fling). Flip, fade, cover, and slide are unchanged.
+> **1.7.1 — page curl.** Curl is oleksandrbalan's pagecurl: a mirrored back,
+> a shadow, and a finger fling. Flip, fade, cover, and slide are unchanged.
 > See [CHANGELOG.md](CHANGELOG.md).
 >
-> **١٫٧٫١ — تكشيرة الورقة.** التكشيرة أسطوانة من صفحة المصحف نفسها (ظهر معكوس،
-> ظل، وقذف بالإصبع). القلب والتلاشي والتغطية والانزلاق كما هم.
+> **١٫٧٫١ — تكشيرة الورقة.** التكشيرة من مكتبة pagecurl (ظهر معكوس، ظل،
+> وقذف بالإصبع). القلب والتلاشي والتغطية والانزلاق كما هم.
 > انظر [CHANGELOG.md](CHANGELOG.md).
 
 ---
@@ -40,7 +40,7 @@ mode in which every rule carries its source.
   surah headers, and a padded frame around highlighted ayahs.
 - Fully offline: text, font and layout all ship inside the library. No network, no API.
 
-**1.7.1** redraws the curl as a cylinder that follows the finger. **1.7.0** added
+**1.7.1** draws the curl with oleksandrbalan's pagecurl. **1.7.0** added
 the turns: a corner or edge curl, a 3D flip around the spine, a fade, and a
 cover, plus an eased slide.
 **1.6.0** added the first curl, hizb and juz marks, the Cairo / Diyanet / Indo-Pak
@@ -280,7 +280,7 @@ for each new value.
 | Value | What it does |
 |---|---|
 | `Slide` | Right-to-left `HorizontalPager`. The drag is `currentPageOffsetFraction`. The snap eases out, and the moving sheet picks up a soft edge shade. |
-| `Curl` | A dog-ear when the finger starts near a corner, or a cylindrical fore-edge peel from the middle. The back of the sheet and a shadow follow the finger. |
+| `Curl` | A page curl (oleksandrbalan/pagecurl). A rightward swipe or a left-margin tap turns forward. The back of the sheet and a shadow follow the fold. |
 | `Flip` | The sheet rotates around the spine (the right edge going forward) and darkens as it closes. The next page lies flat underneath. Rotation stops at 90° so the page never mirrors. |
 | `Fade` | The leaving page fades and settles back a little while the next page fades in. |
 | `Cover` | The next page slides in from the fore-edge and covers the current one, with a shadow on its leading edge. |
@@ -306,8 +306,8 @@ is at least 600 dp wide: the odd page on the right, its even pair on the left, l
 open book. Page 1 shows the inside cover on its left. `state.currentPage` keeps
 addressing a single mushaf page.
 
-Curl and flip turn one leaf around the gutter (the fore-edge page moves, the facing page
-crossfades in over the second half of the turn). Slide, fade, and cover move the whole
+Curl peels the right-hand page of the opening. Flip turns one leaf around the gutter
+(the facing page crossfades in over the second half of the turn). Slide, fade, and cover move the whole
 opening, and a slide flick advances one opening instead of repeating the same pair.
 
 ### Highlighting ayahs
@@ -727,7 +727,7 @@ MushafDecoration.Classic.copy(
 | القيمة | الحركة |
 |---|---|
 | `Slide` | انزلاق من اليمين للشمال. السحب هو `currentPageOffsetFraction`، والصفحة بتهدى بخروج سريع ودخول بطيء، وعلى الحافة ظلّ خفيف. |
-| `Curl` | تكشيرة من الزاوية لو الإصبع بدأ عندها، أو قشرة أسطوانية من نص الحافة. ظهر الورقة والظل بيتبعوا الإصبع. |
+| `Curl` | تكشيرة pagecurl. السحب يمينًا أو لمس الهامش الشمال يقلّب للأمام. ظهر الورقة والظل بيتبعوا الثنية. |
 | `Flip` | الورقة بتدور حول الكعب (الحافة اليمين في التقدّم) وبتغمق وهي بتتقفل. الصفحة الجاية مفروشة تحتها. الدوران بيقف عند ٩٠° عشان الصفحة ما تنعكسش. |
 | `Fade` | الصفحة اللي بتخرج بتتلاشى وترجع لتحت شوية، والجاية بتظهر. |
 | `Cover` | الصفحة الجاية بتتسحب من حافة الكتاب وتغطي الحالية، بظل على حرفها. |

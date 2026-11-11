@@ -8,17 +8,12 @@ from this commit.
 
 ### Curl
 
-- **Cylinder, not a flat fold.** A corner drag keeps the crease on the diagonal
-  from the grabbed corner. At the halfway point that crease crosses about half
-  the page. The sheet is an adaptive mesh, denser on the cylinder, wrapped so
-  the type and the frame compress into the roll. The back of the leaf is that
-  page bent around the cylinder, only slightly warm, with a dark inner fold
-  and a soft shadow on the page underneath. On API 33+ the same mapping is
-  also an AGSL shader; otherwise the page is `drawVertices` with the same
-  triangles. The page is snapshotted at 2×. An edge drag rolls the whole
-  fore-edge. Robolectric's Skia mesh sampler does not return the bitmap's
-  texels, so the screenshot tests rasterize this same mesh on the CPU with
-  bilinear filtering.
+- **pagecurl.** `PageTurn.Curl` is now
+  [oleksandrbalan/pagecurl](https://github.com/oleksandrbalan/pagecurl) 1.5.1
+  (Apache-2.0). A rightward swipe, or a tap on the left margin, turns to the
+  next page. The back of the leaf stays nearly opaque, with a soft shadow
+  under the fold. The hand-rolled mesh and the AGSL shader are gone.
+  `curlSlice` is unchanged.
 - **One snapshot per gesture.** Each leaf is captured once (and again only if
   its pixels change). Later frames warp that bitmap, so the ayah layout is
   not redrawn at 60fps and the drag is not composed state.
