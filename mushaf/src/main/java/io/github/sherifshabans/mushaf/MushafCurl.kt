@@ -24,7 +24,8 @@ import kotlin.math.sin
  *
  * `Slide` and `Curl` are the 1.6.0 values. `Flip`, `Fade`, and `Cover` are
  * additive: a call that passes [Slide] or [Curl] keeps compiling. A `when`
- * with no `else` needs a branch for each new value.
+ * with no `else` needs a branch for each new value. The 1.7.1 curl keeps this
+ * enum and [curlSlice]; only the drawing of [Curl] changed.
  */
 enum class PageTurn {
     /**
@@ -35,13 +36,16 @@ enum class PageTurn {
     Slide,
 
     /**
-     * A curl that follows the finger. A grab in the top or bottom band peels
-     * that corner (dog-ear, back of the sheet, shadow on the page underneath);
-     * a grab in the middle peels the fore-edge as a cylinder. Release eases
-     * to the nearest settled page.
+     * A paper curl that follows the finger. A grab in the top or bottom band
+     * peels that corner: the crease stays perpendicular to the drag, the sheet
+     * stays attached along the spine, and the peeled region rolls through a
+     * cylinder onto a mirrored, tinted back. A grab in the middle rolls the
+     * whole fore-edge as a cylinder. Release flings with the finger's velocity
+     * and settles with a spring.
      *
-     * `state.currentPageOffsetFraction` stays `0` during a curl — it is **not**
-     * the curl progress. Callers that need the fraction stay on [Slide].
+     * On a two-page spread the leaf curls across the gutter onto the facing
+     * page. `state.currentPageOffsetFraction` stays `0` during a curl — it is
+     * **not** the curl progress. Callers that need the fraction stay on [Slide].
      */
     Curl,
 
@@ -324,6 +328,10 @@ internal fun cornerFold(
     apex: Offset,
     forward: Boolean,
     fromTop: Boolean,
+    clipLeft: Float = 0f,
+    clipTop: Float = 0f,
+    clipRight: Float = width,
+    clipBottom: Float = height,
 ): CornerFold {
     val corner = Offset(
         x = if (forward) 0f else width,
@@ -358,7 +366,13 @@ internal fun cornerFold(
     val peeled = clipHalf(full, lineA, lineB) { cross(lineA, lineB, it) * cornerSide >= 0f }
     if (peeled.size < 3) return none
 
-    val back = clipToRect(peeled.map { reflect(it, mid, dx, dy) }, width, height)
+    val back = clipToRect(
+        peeled.map { reflect(it, mid, dx, dy) },
+        clipLeft,
+        clipTop,
+        clipRight,
+        clipBottom,
+    )
     val onCrease = peeled.filter { abs(cross(lineA, lineB, it)) <= 2f }
     val creaseA = onCrease.getOrElse(0) { mid }
     val creaseB = onCrease.getOrElse(1) { onCrease.getOrElse(0) { mid } }
@@ -453,12 +467,18 @@ private fun segmentHit(p: Offset, q: Offset, a: Offset, b: Offset): Offset {
     return Offset(p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t)
 }
 
-private fun clipToRect(poly: List<Offset>, width: Float, height: Float): List<Offset> {
+private fun clipToRect(
+    poly: List<Offset>,
+    left: Float,
+    top: Float,
+    right: Float,
+    bottom: Float,
+): List<Offset> {
     var p = poly
-    p = clipAxis(p, vertical = true, bound = 0f, keepGreater = true)
-    p = clipAxis(p, vertical = true, bound = width, keepGreater = false)
-    p = clipAxis(p, vertical = false, bound = 0f, keepGreater = true)
-    p = clipAxis(p, vertical = false, bound = height, keepGreater = false)
+    p = clipAxis(p, vertical = true, bound = left, keepGreater = true)
+    p = clipAxis(p, vertical = true, bound = right, keepGreater = false)
+    p = clipAxis(p, vertical = false, bound = top, keepGreater = true)
+    p = clipAxis(p, vertical = false, bound = bottom, keepGreater = false)
     return p
 }
 
@@ -518,8 +538,8 @@ internal object MushafCurlProbe {
  * the frame margins. A tap inside the text column is left untouched and stays
  * an ayah tap or long-press. Vertical movement past slop cancels.
  *
- * [onDragEnd] receives horizontal velocity in pixels per second (positive when
- * the finger was moving right) so the release can carry a flick.
+ * [onDragEnd] receives velocity in pixels per second (positive x when the
+ * finger was moving right) so the release can carry a flick.
  */
 internal fun Modifier.curlGestures(
     touchSlop: Float,
@@ -527,7 +547,7 @@ internal fun Modifier.curlGestures(
     marginTurn: (Offset) -> Boolean,
     onDragStart: (forward: Boolean, position: Offset) -> Unit,
     onDrag: (deltaX: Float, deltaY: Float) -> Unit,
-    onDragEnd: (velocityX: Float) -> Unit,
+    onDragEnd: (velocityX: Float, velocityY: Float) -> Unit,
     onTapMargin: (forward: Boolean) -> Unit,
 ): Modifier = pointerInput(touchSlop, longPressTimeoutMs) {
     awaitEachGesture {
@@ -541,6 +561,7 @@ internal fun Modifier.curlGestures(
         var lastY = down.position.y
         var lastTime = down.uptimeMillis
         var velocityX = 0f
+        var velocityY = 0f
         while (true) {
             val event = awaitPointerEvent(PointerEventPass.Initial)
             val change = event.changes.firstOrNull { it.id == pointerId } ?: break
@@ -561,8 +582,10 @@ internal fun Modifier.curlGestures(
             if (dragging) {
                 change.consume()
                 val dt = (change.uptimeMillis - lastTime).coerceAtLeast(1L)
-                val instant = dx / dt * 1000f
-                velocityX = velocityX * 0.65f + instant * 0.35f
+                val instantX = dx / dt * 1000f
+                val instantY = dy / dt * 1000f
+                velocityX = velocityX * 0.65f + instantX * 0.35f
+                velocityY = velocityY * 0.65f + instantY * 0.35f
                 onDrag(dx, dy)
                 lastX = change.position.x
                 lastY = change.position.y
@@ -584,6 +607,6 @@ internal fun Modifier.curlGestures(
                 }
             }
         }
-        if (dragging) onDragEnd(velocityX)
+                if (dragging) onDragEnd(velocityX, velocityY)
     }
 }

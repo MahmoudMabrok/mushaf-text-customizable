@@ -8,11 +8,13 @@ matching the styles used in the customized reader of QuranyApp.
 
 **English** · [العربية](#العربية)
 
-> **1.7.0 — page turns.** Curl follows the finger (corner or edge), flip rotates around
-> the spine, and fade and cover join the eased slide. See [CHANGELOG.md](CHANGELOG.md).
+> **1.7.1 — page curl.** Curl is a cylindrical roll of the real page (mirrored
+> back, shadow, finger fling). Flip, fade, cover, and slide are unchanged.
+> See [CHANGELOG.md](CHANGELOG.md).
 >
-> **١٫٧٫٠ — تقليب الصفحات.** التكشيرة تتبع الإصبع (من الزاوية أو من الحافة)، والقلب
-> يدور حول كعب الكتاب، ومعهما التلاشي والتغطية إلى جوار الانزلاق. انظر [CHANGELOG.md](CHANGELOG.md).
+> **١٫٧٫١ — تكشيرة الورقة.** التكشيرة أسطوانة من صفحة المصحف نفسها (ظهر معكوس،
+> ظل، وقذف بالإصبع). القلب والتلاشي والتغطية والانزلاق كما هم.
+> انظر [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -38,8 +40,9 @@ mode in which every rule carries its source.
   surah headers, and a padded frame around highlighted ayahs.
 - Fully offline: text, font and layout all ship inside the library. No network, no API.
 
-**1.7.0** replaces the flat peel with turns that follow the finger: a corner or edge
-curl, a 3D flip around the spine, a fade, and a cover, plus an eased slide.
+**1.7.1** redraws the curl as a cylinder that follows the finger. **1.7.0** added
+the turns: a corner or edge curl, a 3D flip around the spine, a fade, and a
+cover, plus an eased slide.
 **1.6.0** added the first curl, hizb and juz marks, the Cairo / Diyanet / Indo-Pak
 skins, and host-supplied headers and frames. The design record for that release is
 [`docs/roadmap/next-mushaf-reader.md`](docs/roadmap/next-mushaf-reader.md).
@@ -62,7 +65,7 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.sherifshabans:mushaf-text:1.7.0")
+    implementation("com.github.sherifshabans:mushaf-text:1.7.1")
 }
 ```
 
@@ -70,7 +73,7 @@ Groovy (`build.gradle`):
 
 ```groovy
 repositories { maven { url 'https://jitpack.io' } }
-dependencies { implementation 'com.github.sherifshabans:mushaf-text:1.7.0' }
+dependencies { implementation 'com.github.sherifshabans:mushaf-text:1.7.1' }
 ```
 
 Requirements: `minSdk 21` and Jetpack Compose. The library adds about 1.7 MB to an app
@@ -512,7 +515,7 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.sherifshabans:mushaf-text:1.7.0")
+    implementation("com.github.sherifshabans:mushaf-text:1.7.1")
 }
 ```
 
@@ -520,7 +523,7 @@ Groovy (`build.gradle`):
 
 ```groovy
 repositories { maven { url 'https://jitpack.io' } }
-dependencies { implementation 'com.github.sherifshabans:mushaf-text:1.7.0' }
+dependencies { implementation 'com.github.sherifshabans:mushaf-text:1.7.1' }
 ```
 
 المتطلبات: `minSdk 21` وJetpack Compose. والمكتبة تزيد حجم التطبيق نحو ١٫٧ ميجا (النصّ ١٫٤ +

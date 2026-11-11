@@ -130,6 +130,38 @@ class MushafTurnGeometryTest {
     }
 
     @Test
+    fun creaseStaysPerpendicularToTheDrag() {
+        val fold = cornerFoldAtProgress(w, h, 0.45f, forward = true, fromTop = false)
+        val dragX = fold.apex.x - 0f
+        val dragY = fold.apex.y - h
+        val cx = fold.creaseB.x - fold.creaseA.x
+        val cy = fold.creaseB.y - fold.creaseA.y
+        val dot = dragX * cx + dragY * cy
+        val scale = hypot(dragX, dragY) * hypot(cx, cy)
+        assertTrue("crease drifted off the drag, dot/scale=${dot / scale}", abs(dot) <= scale * 0.02f)
+    }
+
+    @Test
+    fun midTurnKeepsTheSpineOnTheSheet() {
+        val fold = cornerFoldAtProgress(w, h, 0.35f, forward = true, fromTop = false)
+        assertTrue(
+            "spine left the sheet",
+            pointInPolygon(androidx.compose.ui.geometry.Offset(w - 2f, h * 0.5f), fold.flat),
+        )
+    }
+
+    @Test
+    fun mirrorAcrossAVerticalLineFlipsXOnly() {
+        val mirrored = curlMirrorPoint(
+            androidx.compose.ui.geometry.Offset(10f, 40f),
+            androidx.compose.ui.geometry.Offset(30f, 0f),
+            androidx.compose.ui.geometry.Offset(0f, 1f),
+        )
+        assertEquals(50f, mirrored.x, 0.01f)
+        assertEquals(40f, mirrored.y, 0.01f)
+    }
+
+    @Test
     fun backwardCornerMirrorsForward() {
         val forward = cornerFoldAtProgress(w, h, 0.4f, forward = true, fromTop = false)
         val backward = cornerFoldAtProgress(w, h, 0.4f, forward = false, fromTop = false)
