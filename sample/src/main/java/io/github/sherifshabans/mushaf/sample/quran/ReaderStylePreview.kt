@@ -39,14 +39,21 @@ import io.github.sherifshabans.mushaf.rememberMushafPagerState
  * معاينة طُرُز المصحف وطرق التقليب — **خارج** مسار القراءة الأساسي.
  *
  * الشاشة الأولى تفضل القارئ الحالي زي ما هو؛ الورقة دي معاينة حيّة
- * للمكتبة: الطُرُز الجاهزة، تقليب الورقة (انزلاق/تكشيرة)، والصفحة
- * المزدوجة. القفزات والعلامات كلها من المكتبة نفسها.
+ * للمكتبة: الطُرُز الجاهزة، طرق التقليب، والصفحة المزدوجة.
+ * القفزات والعلامات كلها من المكتبة نفسها.
  */
 @Composable
 fun ReaderStylePreviewSheet(onClose: () -> Unit) {
     var preset by remember { mutableIntStateOf(3) }
-    var curl by remember { mutableStateOf(false) }
+    var turn by remember { mutableStateOf(PageTurn.Slide) }
     var spread by remember { mutableStateOf(false) }
+    val turns = listOf(
+        PageTurn.Slide to "انزلاق",
+        PageTurn.Curl to "تكشيرة",
+        PageTurn.Flip to "قلب",
+        PageTurn.Fade to "تلاشي",
+        PageTurn.Cover to "تغطية",
+    )
 
     val presets = listOf(
         "بدون" to MushafDecoration.None,
@@ -74,17 +81,21 @@ fun ReaderStylePreviewSheet(onClose: () -> Unit) {
                 }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(bottom = 6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(bottom = 6.dp),
                 ) {
-                    PreviewChip(label = "انزلاق", selected = !curl) { curl = false }
-                    PreviewChip(label = "تقليب الورقة", selected = curl) { curl = true }
+                    turns.forEach { (mode, label) ->
+                        PreviewChip(label = label, selected = turn == mode) { turn = mode }
+                    }
                     PreviewChip(label = "صفحتين", selected = spread) { spread = !spread }
                 }
                 MushafPager(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     state = rememberMushafPagerState(initialPage = 22),
                     decoration = presets[preset].second,
-                    pageTurn = if (curl) PageTurn.Curl else PageTurn.Slide,
+                    pageTurn = turn,
                     spread = if (spread) MushafSpread.Auto else MushafSpread.Single,
                 )
                 PreviewChip(label = "إغلاق", selected = false, onClick = onClose)
