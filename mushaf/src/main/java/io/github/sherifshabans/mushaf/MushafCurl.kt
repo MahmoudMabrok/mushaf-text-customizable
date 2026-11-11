@@ -149,6 +149,13 @@ fun curlSlice(
  */
 internal const val CORNER_TRAVEL = 2.8f
 
+/**
+ * How far a corner drag travels, in page widths, for the cylinder curl.
+ * The corner stays on the sheet through the middle of the turn; the old
+ * flat-fold geometry still uses [CORNER_TRAVEL].
+ */
+internal const val CYLINDER_TRAVEL = 1.05f
+
 /** Grab band (fraction of height) that peels the whole edge instead of a corner. */
 internal const val EDGE_GRAB_LO = 0.30f
 internal const val EDGE_GRAB_HI = 0.70f

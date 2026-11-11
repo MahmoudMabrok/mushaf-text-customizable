@@ -421,18 +421,25 @@ private fun CaptureOnce(
 }
 
 private fun ContentDrawScope.captureSheet(paper: Color): ImageBitmap {
-    val w = size.width.toInt().coerceAtLeast(1)
-    val h = size.height.toInt().coerceAtLeast(1)
+    // Twice the view, so the cylinder still has texels after it compresses.
+    val scale = 2f
+    val viewW = size.width
+    val viewH = size.height
+    val w = (viewW * scale).toInt().coerceAtLeast(1)
+    val h = (viewH * scale).toInt().coerceAtLeast(1)
     val image = ImageBitmap(w, h)
     val offscreen = Canvas(image)
     val ctx = drawContext
     val previous = ctx.canvas
     val previousSize = ctx.size
     ctx.canvas = offscreen
-    ctx.size = Size(w.toFloat(), h.toFloat())
+    ctx.size = Size(viewW, viewH)
     try {
+        offscreen.save()
+        offscreen.scale(scale, scale)
         drawRect(paper)
         drawContent()
+        offscreen.restore()
     } finally {
         ctx.canvas = previous
         ctx.size = previousSize
@@ -550,7 +557,7 @@ private fun SpreadCurl(
                 val leafOnLeft = plan.turnLeft
                 val p = poseFraction(posed, motion, plan.leafForward, edge, PageTurn.Curl, leafW)
                 val dx = if (posed != null) {
-                    val full = if (edge) leafW else leafW * CORNER_TRAVEL
+                    val full = if (edge) leafW else leafW * CYLINDER_TRAVEL
                     (if (plan.leafForward) 1f else -1f) * p * full
                 } else {
                     motion.dragX
@@ -772,7 +779,7 @@ private fun poseFraction(
 ): Float {
     if (posed != null) return posed.coerceIn(0f, 1f)
     val travel = if (leafForward) motion.dragX.coerceAtLeast(0f) else (-motion.dragX).coerceAtLeast(0f)
-    val full = if (mode == PageTurn.Curl && !edge) leafWidth * CORNER_TRAVEL else leafWidth
+    val full = if (mode == PageTurn.Curl && !edge) leafWidth * CYLINDER_TRAVEL else leafWidth
     return (travel / full.coerceAtLeast(1f)).coerceIn(0f, 1f)
 }
 
@@ -784,7 +791,7 @@ private fun DrawScope.dragX(
     mode: PageTurn,
 ): Float {
     if (posed == null) return motion.dragX
-    val full = if (mode == PageTurn.Curl && !edge) size.width * CORNER_TRAVEL else size.width
+    val full = if (mode == PageTurn.Curl && !edge) size.width * CYLINDER_TRAVEL else size.width
     return (if (leafForward) 1f else -1f) * posed.coerceIn(0f, 1f) * full
 }
 
@@ -963,7 +970,7 @@ private class TurnController(initialPage: Int) {
         job?.cancel()
         val leafW = leafWidth()
         val sign = if (leafForward) 1f else -1f
-        val full = if (mode == PageTurn.Curl && !motion.edge) leafW * CORNER_TRAVEL else leafW
+        val full = if (mode == PageTurn.Curl && !motion.edge) leafW * CYLINDER_TRAVEL else leafW
         val targetX = if (commit) sign * full else 0f
         val targetY = 0f
         val startX = motion.dragX

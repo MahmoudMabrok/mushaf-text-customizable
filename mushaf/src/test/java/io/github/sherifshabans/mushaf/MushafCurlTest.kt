@@ -151,6 +151,79 @@ class MushafTurnGeometryTest {
     }
 
     @Test
+    fun cylinderCarriesTheCornerToTheFinger() {
+        val corner = androidx.compose.ui.geometry.Offset(0f, 1800f)
+        val finger = androidx.compose.ui.geometry.Offset(900f, 1500f)
+        val cylinder = cylinderBetween(corner, finger, radius = 80f)
+        assertNotNull(cylinder)
+        val landed = sampleCylinder(corner.x, corner.y, cylinder!!)
+        assertEquals(finger.x, landed.x, 1.5f)
+        assertEquals(finger.y, landed.y, 1.5f)
+        assertTrue(landed.back)
+        val spine = sampleCylinder(1000f, 400f, cylinder)
+        assertEquals(1000f, spine.x, 0.5f)
+        assertEquals(400f, spine.y, 0.5f)
+        assertTrue(!spine.back)
+    }
+
+    @Test
+    fun cylinderCompressesPaperTowardTheRidge() {
+        val corner = androidx.compose.ui.geometry.Offset(0f, 1800f)
+        val finger = androidx.compose.ui.geometry.Offset(1100f, 1400f)
+        val cylinder = cylinderBetween(corner, finger, radius = 90f)!!
+        val dir = androidx.compose.ui.geometry.Offset(cylinder.dirX, cylinder.dirY)
+        val origin = androidx.compose.ui.geometry.Offset(cylinder.posX, cylinder.posY)
+        fun pageAt(dist: Float) = androidx.compose.ui.geometry.Offset(
+            origin.x + dir.x * dist,
+            origin.y + dir.y * dist,
+        )
+        val a = pageAt(10f)
+        val b = pageAt(10f + 40f)
+        val mid = pageAt(cylinder.radius * 1.2f)
+        val mid2 = pageAt(cylinder.radius * 1.2f + 40f)
+        val flat = sampleCylinder(a.x, a.y, cylinder)
+        val flat2 = sampleCylinder(b.x, b.y, cylinder)
+        val curl = sampleCylinder(mid.x, mid.y, cylinder)
+        val curl2 = sampleCylinder(mid2.x, mid2.y, cylinder)
+        val flatGap = hypot(flat.x - flat2.x, flat.y - flat2.y)
+        val curlGap = hypot(curl.x - curl2.x, curl.y - curl2.y)
+        assertTrue("flat gap $flatGap", flatGap > 30f)
+        assertTrue("curl gap $curlGap should be tighter than flat $flatGap", curlGap < flatGap * 0.75f)
+    }
+
+    @Test
+    fun meshEdgesStayShortAtMidCurl() {
+        val w = 720f
+        val h = 1280f
+        val cyl = cylinderForPose(
+            w, h, 0.5f, forward = true, edge = false, fromTop = false,
+            radiusPx = 72f, dragX = Float.NaN, dragY = 0f, fingerY = h * 0.9f,
+        )
+        assertNotNull(cyl)
+        val cols = 42
+        val rows = 60
+        var maxEdge = 0f
+        fun at(col: Int, row: Int): CurlSample {
+            val px = w * col / cols
+            val py = h * row / rows
+            return sampleCylinder(px, py, cyl!!)
+        }
+        for (row in 0 until rows) {
+            for (col in 0 until cols) {
+                val a = at(col, row)
+                val b = at(col + 1, row)
+                val c = at(col, row + 1)
+                maxEdge = maxOf(maxEdge, hypot(a.x - b.x, a.y - b.y), hypot(a.x - c.x, a.y - c.y))
+            }
+        }
+        println("[mushaf] max mesh edge at 0.5 = $maxEdge radius=${cyl!!.radius}")
+        val corner = sampleCylinder(0f, h, cyl)
+        val mid = sampleCylinder(w * 0.5f, h * 0.5f, cyl)
+        println("[mushaf] corner -> (${corner.x}, ${corner.y}, z=${corner.z}) mid -> (${mid.x}, ${mid.y}, z=${mid.z}, back=${mid.back})")
+        assertTrue("mesh edge $maxEdge is a smear", maxEdge < 80f)
+    }
+
+    @Test
     fun mirrorAcrossAVerticalLineFlipsXOnly() {
         val mirrored = curlMirrorPoint(
             androidx.compose.ui.geometry.Offset(10f, 40f),

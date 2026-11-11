@@ -9,13 +9,14 @@ from this commit.
 ### Curl
 
 - **Cylinder, not a flat fold.** A corner drag keeps the crease perpendicular
-  to the finger and pinned to the spine. The sheet rolls through a shaded
-  cylinder (`drawVertices`, API 21 and up — no shader that would raise minSdk).
-  The back is the page itself, mirrored and warm-tinted, so the type stays
-  sharp; a shadow falls on the page underneath and a highlight sits on the
-  ridge. An edge drag rolls the whole fore-edge the same way. A mesh that
-  resampled the glyphs smeared the mushaf script, so the back stays a crisp
-  reflection.
+  to the finger. The sheet is a mesh wrapped on a cylinder, so the type and
+  the frame compress into the roll. The back of the leaf is that page bent
+  around the cylinder and shaded (dark in the fold, lighter on the ridge),
+  with a shadow on the page underneath. On API 33+ the same mapping is also
+  an AGSL shader; otherwise the page is `drawBitmapMesh`. The page is
+  snapshotted at 2×. An edge drag rolls the whole fore-edge. Robolectric's
+  Skia mesh sampler does not return the bitmap's texels, so the screenshot
+  tests rasterize this same mesh on the CPU.
 - **One snapshot per gesture.** Each leaf is captured once (and again only if
   its pixels change). Later frames warp that bitmap, so the ayah layout is
   not redrawn at 60fps and the drag is not composed state.
