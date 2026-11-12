@@ -1,8 +1,10 @@
 package io.github.sherifshabans.mushaf
 
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.calculateTargetValue
+import androidx.compose.animation.core.exponentialDecay
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -33,16 +35,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
@@ -51,18 +47,21 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
  * Curl, flip, fade, and cover. Slide stays on [HorizontalPager].
  *
- * Drag distance maps 1:1 onto the sheet. Releasing eases with fast-out / slow-in
- * to the settled page or back. Only the draw phase reads the drag, so the page
+ * Drag distance maps 1:1 onto the sheet. Releasing carries the finger's velocity
+ * into a spring that finishes or cancels the turn. Only the draw phase reads
+ * the drag, and a curl snapshots each page once per gesture, so the page
  * composables are not rebuilt on every frame.
  *
- * On a spread, curl and flip turn the fore-edge leaf around the gutter and the
- * facing page crossfades in over the second half of the turn. Fade and cover
- * move the whole opening. A reciter jump replaces the in-flight target.
+ * On a spread, curl rolls the fore-edge leaf across the gutter (the facing page
+ * is the back of that leaf). Flip still crossfades the facing page over the
+ * second half of the turn. Fade and cover move the whole opening. A reciter
+ * jump replaces the in-flight target.
  */
 @Composable
 internal fun LeafPager(
@@ -145,11 +144,11 @@ internal fun LeafPager(
                         controller.motion.dragX = 0f
                     }
                 },
-                onDragEnd = { velocityX ->
+                onDragEnd = { velocityX, velocityY ->
                     if (!controller.tracking) return@curlGestures
                     controller.tracking = false
                     if (controller.landing >= 0) return@curlGestures
-                    controller.release(velocityX, mode, scope)
+                    controller.release(velocityX, velocityY, mode, scope)
                 },
                 onTapMargin = { forward ->
                     if (preview != null) return@curlGestures
@@ -460,37 +459,6 @@ private fun ContentDrawScope.paintOver(
 ) {
     val p = poseFraction(posed, motion, leafForward, edge, mode, size.width)
     when (mode) {
-        PageTurn.Curl -> {
-            if (p >= 0.995f) return
-            if (edge) {
-                val curl = edgeCurl(size.width, p, leafForward, 22.dp.toPx(), 36.dp.toPx())
-                if (curl.settled && p <= 0f) {
-                    drawRect(paper)
-                    drawContent()
-                    return
-                }
-                clipPath(edgeClip(curl, leafForward)) {
-                    drawRect(paper)
-                    this@paintOver.drawContent()
-                }
-                drawEdgeCurl(p, leafForward, paper)
-            } else {
-                val dragX = dragX(posed, motion, leafForward, edge, mode)
-                val dragY = if (posed != null) 0f else motion.dragY
-                val apex = cornerApex(size.width, size.height, dragX, dragY, leafForward, fromTop)
-                val fold = cornerFold(size.width, size.height, apex, leafForward, fromTop)
-                if (!fold.curled) {
-                    drawRect(paper)
-                    drawContent()
-                } else if (fold.flat.size >= 3) {
-                    clipPath(polygonPath(fold.flat)) {
-                        drawRect(paper)
-                        this@paintOver.drawContent()
-                    }
-                    drawCornerCurl(fold, paper)
-                }
-            }
-        }
         PageTurn.Flip -> {
             drawRect(paper)
             drawContent()
@@ -531,137 +499,6 @@ private fun ContentDrawScope.paintOver(
     }
 }
 
-private fun DrawScope.drawEdgeCurl(progress: Float, forward: Boolean, paper: Color) {
-    val curl = edgeCurl(size.width, progress, forward, 22.dp.toPx(), 40.dp.toPx())
-    if (curl.settled || curl.back <= 0.5f) return
-    val curve = creaseCurve(curl.boundary, curl.bow, forward, size.height)
-    val shade = 0.32f * sin(Math.PI * progress.coerceIn(0f, 1f)).toFloat()
-    drawPath(
-        curve,
-        color = Color.Black.copy(alpha = shade),
-        style = Stroke(width = curl.back + curl.shadow, cap = StrokeCap.Butt),
-    )
-    val start = if (forward) curl.boundary - curl.back else curl.boundary
-    val end = if (forward) curl.boundary else curl.boundary + curl.back
-    drawPath(
-        curve,
-        brush = Brush.horizontalGradient(
-            0f to curlTone(paper, if (forward) 0.08f else 0.92f),
-            0.42f to curlTone(paper, 0.4f),
-            1f to curlTone(paper, if (forward) 0.92f else 0.08f),
-            startX = start,
-            endX = end,
-        ),
-        style = Stroke(width = curl.back, cap = StrokeCap.Butt),
-    )
-    drawPath(
-        curve,
-        color = Color.White.copy(alpha = 0.28f * sin(Math.PI * progress).toFloat()),
-        style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Butt),
-    )
-}
-
-private fun DrawScope.drawCornerCurl(fold: CornerFold, paper: Color) {
-    if (fold.back.size < 3) return
-    val span = hypot2(fold.creaseA, fold.creaseB).coerceAtLeast(1f)
-    val shadowW = (28.dp.toPx()).coerceAtMost(span)
-    val n = fold.revealedNormal
-    val a2 = Offset(fold.creaseA.x + n.x * shadowW, fold.creaseA.y + n.y * shadowW)
-    val b2 = Offset(fold.creaseB.x + n.x * shadowW, fold.creaseB.y + n.y * shadowW)
-    val shadow = Path().apply {
-        moveTo(fold.creaseA.x, fold.creaseA.y)
-        lineTo(fold.creaseB.x, fold.creaseB.y)
-        lineTo(b2.x, b2.y)
-        lineTo(a2.x, a2.y)
-        close()
-    }
-    val midCrease = Offset(
-        (fold.creaseA.x + fold.creaseB.x) * 0.5f,
-        (fold.creaseA.y + fold.creaseB.y) * 0.5f,
-    )
-    val midOuter = Offset((a2.x + b2.x) * 0.5f, (a2.y + b2.y) * 0.5f)
-    drawPath(
-        shadow,
-        brush = Brush.linearGradient(
-            colors = listOf(Color.Black.copy(alpha = 0.38f), Color.Transparent),
-            start = midCrease,
-            end = midOuter,
-        ),
-    )
-    drawPath(
-        polygonPath(fold.back),
-        brush = Brush.linearGradient(
-            colors = listOf(curlTone(paper, 0.9f), curlTone(paper, 0.38f), curlTone(paper, 0.1f)),
-            start = midCrease,
-            end = fold.apex,
-        ),
-    )
-    drawLine(
-        color = Color.Black.copy(alpha = 0.4f),
-        start = fold.creaseA,
-        end = fold.creaseB,
-        strokeWidth = 2f,
-    )
-    val lipA = Offset(fold.creaseA.x + n.x * 2f, fold.creaseA.y + n.y * 2f)
-    val lipB = Offset(fold.creaseB.x + n.x * 2f, fold.creaseB.y + n.y * 2f)
-    drawLine(
-        color = Color.White.copy(alpha = 0.3f),
-        start = lipA,
-        end = lipB,
-        strokeWidth = 1.5f,
-    )
-}
-
-private fun DrawScope.edgeClip(curl: EdgeCurl, forward: Boolean): Path {
-    val path = Path()
-    val b = curl.boundary
-    val bow = curl.bow
-    val h = size.height
-    val w = size.width
-    if (forward) {
-        path.moveTo(b, 0f)
-        path.quadraticBezierTo(b + bow, h * 0.5f, b, h)
-        path.lineTo(w, h)
-        path.lineTo(w, 0f)
-    } else {
-        path.moveTo(b, 0f)
-        path.quadraticBezierTo(b - bow, h * 0.5f, b, h)
-        path.lineTo(0f, h)
-        path.lineTo(0f, 0f)
-    }
-    path.close()
-    return path
-}
-
-private fun creaseCurve(boundary: Float, bow: Float, forward: Boolean, height: Float): Path {
-    val path = Path()
-    path.moveTo(boundary, 0f)
-    val controlX = if (forward) boundary + bow else boundary - bow
-    path.quadraticBezierTo(controlX, height * 0.5f, boundary, height)
-    return path
-}
-
-private fun polygonPath(points: List<Offset>): Path {
-    val path = Path()
-    path.moveTo(points[0].x, points[0].y)
-    for (i in 1 until points.size) path.lineTo(points[i].x, points[i].y)
-    path.close()
-    return path
-}
-
-private fun hypot2(a: Offset, b: Offset): Float {
-    val dx = a.x - b.x
-    val dy = a.y - b.y
-    return kotlin.math.hypot(dx, dy)
-}
-
-private fun curlTone(paper: Color, shade: Float): Color {
-    val lightPaper = paper.luminance() > 0.45f
-    val highlight = if (lightPaper) lerp(paper, Color.White, 0.28f) else lerp(paper, Color.White, 0.14f)
-    val deep = if (lightPaper) lerp(paper, Color.Black, 0.20f) else lerp(paper, Color.Black, 0.32f)
-    return lerp(highlight, deep, shade.coerceIn(0f, 1f))
-}
-
 private fun poseFraction(
     posed: Float?,
     motion: TurnMotion,
@@ -672,20 +509,8 @@ private fun poseFraction(
 ): Float {
     if (posed != null) return posed.coerceIn(0f, 1f)
     val travel = if (leafForward) motion.dragX.coerceAtLeast(0f) else (-motion.dragX).coerceAtLeast(0f)
-    val full = if (mode == PageTurn.Curl && !edge) leafWidth * CORNER_TRAVEL else leafWidth
+    val full = leafWidth
     return (travel / full.coerceAtLeast(1f)).coerceIn(0f, 1f)
-}
-
-private fun DrawScope.dragX(
-    posed: Float?,
-    motion: TurnMotion,
-    leafForward: Boolean,
-    edge: Boolean,
-    mode: PageTurn,
-): Float {
-    if (posed == null) return motion.dragX
-    val full = if (mode == PageTurn.Curl && !edge) size.width * CORNER_TRAVEL else size.width
-    return (if (leafForward) 1f else -1f) * posed.coerceIn(0f, 1f) * full
 }
 
 private fun marginContentRange(
@@ -787,14 +612,16 @@ private class TurnController(initialPage: Int) {
         leafWise = spread && (mode == PageTurn.Curl || mode == PageTurn.Flip)
         fromIndex = settled
         toIndex = target
-        motion.grabY = 0.92f
-        motion.edge = false
+        // A margin tap rolls the whole fore-edge. The spring gets a small
+        // push so the page is moving on the first frames.
+        motion.grabY = 0.5f
+        motion.edge = true
         motion.fromTop = false
         leafForward = if (leafWise) planSpreadTurn(settled, target).leafForward else forward
         motion.dragX = 0f
         motion.dragY = 0f
         active = true
-        release(velocityX = 0f, mode = mode, scope = scope, forceCommit = true)
+        release(velocityX = 0f, velocityY = 0f, mode = mode, scope = scope, forceCommit = true)
     }
 
     fun beginProgrammatic(
@@ -806,37 +633,46 @@ private class TurnController(initialPage: Int) {
         fromIndex = settled
         toIndex = page
         leafWise = false
-        motion.edge = false
+        motion.edge = true
         motion.fromTop = false
-        motion.grabY = 0.92f
+        motion.grabY = 0.5f
         leafForward = page > settled
         tracking = false
         active = true
-        animateRelease(commit = true, mode = mode, scope = scope) {
+        animateRelease(commit = true, mode = mode, scope = scope, velocityX = 0f, velocityY = 0f) {
             settle(page)
         }
     }
 
     fun release(
         velocityX: Float,
+        velocityY: Float,
         mode: PageTurn,
         scope: kotlinx.coroutines.CoroutineScope,
         forceCommit: Boolean = false,
     ) {
         val leafW = leafWidth()
         val travel = if (leafForward) motion.dragX.coerceAtLeast(0f) else (-motion.dragX).coerceAtLeast(0f)
-        val finger = travel / leafW.coerceAtLeast(1f)
-        val flickForward = if (leafForward) velocityX > 1600f else velocityX < -1600f
-        val flickBack = if (leafForward) velocityX < -1600f else velocityX > 1600f
+        val pushed = if (forceCommit && abs(velocityX) < 80f) {
+            (if (leafForward) 1f else -1f) * leafW * 1.15f
+        } else {
+            velocityX
+        }
+        val signed = if (leafForward) pushed else -pushed
+        val projected = exponentialDecay<Float>(frictionMultiplier = 2.2f)
+            .calculateTargetValue(initialValue = travel, initialVelocity = signed)
+        val flickForward = signed > 1400f
+        val flickBack = signed < -1400f
         val commit = when {
             forceCommit -> true
             flickForward -> true
-            flickBack && finger < 0.55f -> false
-            finger >= TURN_COMMIT -> true
+            flickBack && travel < leafW * 0.55f -> false
+            projected >= leafW * TURN_COMMIT -> true
+            travel / leafW.coerceAtLeast(1f) >= TURN_COMMIT -> true
             else -> false
         }
         if (commit) landing = toIndex
-        animateRelease(commit, mode, scope) {
+        animateRelease(commit, mode, scope, pushed, velocityY) {
             if (commit) settle(toIndex) else retreat()
         }
     }
@@ -845,26 +681,37 @@ private class TurnController(initialPage: Int) {
         commit: Boolean,
         mode: PageTurn,
         scope: kotlinx.coroutines.CoroutineScope,
+        velocityX: Float,
+        velocityY: Float,
         onEnd: suspend () -> Unit,
     ) {
         job?.cancel()
         val leafW = leafWidth()
         val sign = if (leafForward) 1f else -1f
-        val full = if (mode == PageTurn.Curl && !motion.edge) leafW * CORNER_TRAVEL else leafW
+        val full = leafW
         val targetX = if (commit) sign * full else 0f
         val targetY = 0f
         val startX = motion.dragX
         val startY = motion.dragY
-        val remain = abs(targetX - startX) / viewWidth.coerceAtLeast(1f)
-        val ms = (240 + 400 * remain.coerceIn(0.2f, 1f)).toInt().coerceIn(260, 680)
+        val dx = targetX - startX
+        val dy = targetY - startY
+        val dist = hypot(dx, dy)
+        val along = velocityX * dx + velocityY * dy
+        val speed = if (dist < 1f) 0f else (along / (dist * dist)).coerceIn(-14f, 14f)
         job = scope.launch {
             animate(
                 initialValue = 0f,
                 targetValue = 1f,
-                animationSpec = tween(durationMillis = ms, easing = FastOutSlowInEasing),
-            ) { t, _ ->
-                motion.dragX = startX + (targetX - startX) * t
-                motion.dragY = startY + (targetY - startY) * t
+                initialVelocity = speed,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = 640f,
+                    visibilityThreshold = 0.0015f,
+                ),
+            ) { u, _ ->
+                val t = u.coerceIn(0f, 1f)
+                motion.dragX = startX + dx * t
+                motion.dragY = startY + dy * t
             }
             onEnd()
         }

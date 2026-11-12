@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.github.sherifshabans"
-version = "1.7.0"
+version = "1.7.1"
 
 android {
     namespace = "io.github.sherifshabans.mushaf"
@@ -52,6 +52,7 @@ dependencies {
     api("androidx.compose.ui:ui")
     api("androidx.compose.foundation:foundation")
     implementation("androidx.compose.ui:ui-graphics")
+    implementation("io.github.oleksandrbalan:pagecurl:1.5.1")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation(composeBom)

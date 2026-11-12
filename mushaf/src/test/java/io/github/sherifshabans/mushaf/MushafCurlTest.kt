@@ -17,6 +17,7 @@ import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlin.math.hypot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -130,6 +131,27 @@ class MushafTurnGeometryTest {
     }
 
     @Test
+    fun creaseStaysPerpendicularToTheDrag() {
+        val fold = cornerFoldAtProgress(w, h, 0.45f, forward = true, fromTop = false)
+        val dragX = fold.apex.x - 0f
+        val dragY = fold.apex.y - h
+        val cx = fold.creaseB.x - fold.creaseA.x
+        val cy = fold.creaseB.y - fold.creaseA.y
+        val dot = dragX * cx + dragY * cy
+        val scale = hypot(dragX, dragY) * hypot(cx, cy)
+        assertTrue("crease drifted off the drag, dot/scale=${dot / scale}", abs(dot) <= scale * 0.02f)
+    }
+
+    @Test
+    fun midTurnKeepsTheSpineOnTheSheet() {
+        val fold = cornerFoldAtProgress(w, h, 0.35f, forward = true, fromTop = false)
+        assertTrue(
+            "spine left the sheet",
+            pointInPolygon(androidx.compose.ui.geometry.Offset(w - 2f, h * 0.5f), fold.flat),
+        )
+    }
+
+    @Test
     fun backwardCornerMirrorsForward() {
         val forward = cornerFoldAtProgress(w, h, 0.4f, forward = true, fromTop = false)
         val backward = cornerFoldAtProgress(w, h, 0.4f, forward = false, fromTop = false)
@@ -202,8 +224,6 @@ class MushafTurnGeometryTest {
         assertEquals(50, backward.incomingStaticPage)
     }
 }
-
-private fun hypot(x: Float, y: Float) = kotlin.math.hypot(x, y)
 
 /**
  * تقليب الورقة داخل الـpager: السحب يودّي للصفحة الجاية، ولمسة الهامش تقلّب،

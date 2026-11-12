@@ -1,5 +1,53 @@
 # Release notes
 
+## 1.7.1 — realistic page curl
+
+A patch on 1.7.0. `PageTurn.Curl` is redrawn; the public API is unchanged
+(`PageTurn`, `curlSlice`, and `MushafPager`'s parameters). No tag is cut
+from this commit.
+
+### Curl
+
+- **pagecurl.** `PageTurn.Curl` is now
+  [oleksandrbalan/pagecurl](https://github.com/oleksandrbalan/pagecurl) 1.5.1
+  (Apache-2.0). A rightward swipe, or a tap on the left margin, turns to the
+  next page. Each page is opaque paper. The back of the leaf is that paper
+  with only a faint mirrored show-through, and a soft shadow under the fold.
+  On a spread only the active page curls; the facing page stays put.
+  The hand-rolled mesh and the AGSL shader are gone.
+  `curlSlice` is unchanged.
+- **One snapshot per gesture.** Each leaf is captured once (and again only if
+  its pixels change). Later frames warp that bitmap, so the ayah layout is
+  not redrawn at 60fps and the drag is not composed state.
+- **Fling.** Release projects the finger's velocity with a decay and springs
+  to the settled page or back, without bouncing past the end. A margin tap
+  rolls the fore-edge with a small initial push.
+- **Spreads.** The turning leaf curls across the gutter onto the facing page,
+  carrying that page's verso, instead of crossfading the facing half. Flip
+  still crossfades.
+
+### Limits
+
+- The curl is orthographic: the sheet does not shrink in perspective.
+- On a single page the back is a tinted mirror of the front, not a second
+  typeset page. On a spread the verso is the incoming page, pre-flipped so it
+  reads upright as the leaf lands; a steep diagonal can still skew it.
+- Shadows are gradient bands. A blur mask is unreliable on a hardware canvas.
+
+### العربية — تكشيرة الورقة
+
+ترقيع على ١٫٧٫٠. `PageTurn.Curl` أُعيد رسمها، والواجهة العامة كما هي. لا وسم
+لهذا الالتزام.
+
+- **أسطوانة لا طيّة مسطّحة.** ثنية الزاوية تبقى عمودية على سحب الإصبع ومثبّتة
+  في الكعب. الورقة تلتف على أسطوانة: النسيج ينضغط عند الشفة، والظهر انعكاس
+  ملوّن، وظل على الصفحة التي تحتها مع لمعة على الحرف. سحب الحافة يلفّ الطرف
+  كله.
+- **لقطة واحدة لكل إيماءة.** الإطار اللاحق يلوي الصورة، فتخطيط الآيات لا يُعاد
+  رسمه كل إطار.
+- **قذف.** الإفلات يقدّر سرعة الإصبع وينهي التقليبة أو يرجعها بنابض بلا ارتداد.
+- **الازدواج.** الورقة تلتف عبر الكعب فوق الصفحة المقابلة بدل التلاشي.
+
 ## 1.7.0 — page turns
 
 A minor bump. `MushafPager(pageTurn = …)` grows three motions and the two that
