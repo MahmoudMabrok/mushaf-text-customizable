@@ -90,7 +90,10 @@ internal fun MushafPageCurl(
         }
     }
 
-    Box(modifier.fillMaxSize()) {
+    // Keep the curl surface opaque. Without an explicit paper layer, the
+    // pagecurl canvas can expose the window's black surface while the folded
+    // page is being composed on some GPU/device combinations.
+    Box(modifier.fillMaxSize().background(colors.paper)) {
         // PagerState.scrollToPage needs a pager in the composition.
         HorizontalPager(
             state = state,
@@ -163,11 +166,13 @@ private fun PaperPage(
 internal fun rememberMushafPageCurlConfig(colors: MushafColors): PageCurlConfig =
     rememberPageCurlConfig(
         backPageColor = colors.paper,
-        backPageContentAlpha = 0.1f,
+        // The reverse side is paper, not a translucent copy of the page.
+        // This prevents dark/black bleed-through during the fold.
+        backPageContentAlpha = 0f,
         shadowColor = colors.ink,
-        shadowAlpha = 0.55f,
-        shadowRadius = 36.dp,
-        shadowOffset = androidx.compose.ui.unit.DpOffset(10.dp, 16.dp),
+        shadowAlpha = 0.22f,
+        shadowRadius = 20.dp,
+        shadowOffset = androidx.compose.ui.unit.DpOffset(4.dp, 8.dp),
         dragInteraction = PageCurlConfig.StartEndDragInteraction(
             pointerBehavior = PageCurlConfig.DragInteraction.PointerBehavior.PageEdge,
             // Rightward swipe (starts on the left) turns forward.
